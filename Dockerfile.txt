@@ -1,5 +1,5 @@
 # ใช้ Base Image ที่มี Playwright และ Browser มาให้ครบชุด (จะได้ไม่ต้องลงเอง)
-FROM mcr.microsoft.com/playwright/python:v1.48.0-jammy
+FROM mcr.microsoft.com/playwright/python:v1.57.0-jammy
 
 # ตั้งค่าโฟลเดอร์ทำงานใน Server
 WORKDIR /app
