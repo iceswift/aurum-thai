@@ -27,29 +27,16 @@ Scrape once, cache smartly, and serve Thai gold prices at lightning speed—buil
 
 ---
 
-## 🏗️ Architecture
+### 🏗️ Architecture
 
-**Fetch Once, Serve Many** — scrape a single time, then fan‑out via cache + CDN.
+- 📱 Client / App
+- ☁️ Cloudflare CDN
+- 🚀 FastAPI Server
+- 📦 In-Memory Cache
+- 🤖 Background Scheduler
+- 🕷️ Playwright Scraper
+end
 
-```mermaid
-graph TD
-    User[📱 Client / App] -- Request --> CF[☁️ Cloudflare CDN]
-
-    subgraph "Server Layer (Railway)"
-        CF -- Cache Miss --> API[🚀 FastAPI]
-        API -- Read --> Cache[(📦 Global In‑Memory Cache)]
-    end
-
-    subgraph "Worker Layer"
-        Worker[🤖 Scheduler (60s)] --> Browser[🕷️ Playwright (Chromium)]
-        Browser --> Source[🌐 GoldTraders.or.th]
-        Worker --> Cache
-    end
-
-    style CF fill:#f38020,stroke:#333,stroke-width:2px,color:white
-    style API fill:#009688,stroke:#333,stroke-width:2px,color:white
-    style Browser fill:#DD344C,stroke:#333,stroke-width:2px,color:white
-```
 
 ---
 
@@ -148,3 +135,4 @@ This API scrapes data from publicly available sources for **educational and pers
 ---
 
 ### ❤️ Made with love by **Suwiwat Sinsomboon**
+
