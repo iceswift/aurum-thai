@@ -14,7 +14,7 @@ GLOBAL_CACHE: Dict[str, Any] = {
     "jewelry_percent": [],    # เก็บราคาทองรูปพรรณ (เฉพาะ %)
     "last_updated": None,     # เวลาที่อัปเดตล่าสุด
     "market_status": "Initializing...",
-    "source_type": "None"     # ระบุว่ารอบนี้ดึงจาก 'New Website' หรือ 'Classic Website'
+    "source_type": "None"     # เก็บสถานะว่าใช้เว็บไหนอยู่ (New/Classic/None)
 }
 
 playwright_instance = None
@@ -34,7 +34,6 @@ def is_market_open():
     if now.weekday() == 6: return False, "Closed (Sunday)"
     
     current = now.time()
-    # เปิด 09:00 - 17:30
     if datetime.time(9, 0, 0) <= current <= datetime.time(17, 30, 0):
         return True, "Open"
     return False, "Closed (Outside Hours)"
@@ -46,10 +45,7 @@ def is_market_open():
 # --- LOGIC A: เว็บเวอร์ชันใหม่ (Clean URL) ---
 async def scrape_new_version(page: Page) -> Dict[str, Any]:
     print("   👉 Trying New Version Logic...")
-    # URL เว็บใหม่
     await page.goto("https://www.goldtraders.or.th/updatepricelist", timeout=15000)
-    
-    # เช็คว่าใช่เว็บใหม่จริงไหม (Table โครงสร้างใหม่)
     await page.wait_for_selector("table tbody tr", timeout=5000) 
 
     # 1. Gold Bar
@@ -72,11 +68,10 @@ async def scrape_new_version(page: Page) -> Dict[str, Any]:
                 "change": texts[9].replace('\n', '').strip()
             })
 
-    # 2. Jewelry Percent (ไปหน้า DailyPrices ของเว็บใหม่)
+    # 2. Jewelry Percent
     jewelry_data = []
     try:
         await page.goto("https://www.goldtraders.or.th/dailyprices", timeout=15000)
-        # สังเกต element ของเว็บใหม่
         await page.wait_for_selector("td:has-text('96.5%')", timeout=5000)
         rows = await page.locator("table").filter(has_text="96.5%").locator("tbody tr").all()
         for row in rows:
@@ -96,10 +91,7 @@ async def scrape_new_version(page: Page) -> Dict[str, Any]:
 # --- LOGIC B: เว็บเวอร์ชันเก่า (Classic .aspx) ---
 async def scrape_classic_version(page: Page) -> Dict[str, Any]:
     print("   👉 Trying Classic Version Logic (Fallback)...")
-    # URL เว็บเก่า
     await page.goto("https://www.goldtraders.or.th/UpdatePriceList.aspx", timeout=15000)
-    
-    # เช็ค Selector ของ GridView (เอกลักษณ์เว็บเก่า)
     await page.wait_for_selector("#DetailPlace_MainGridView", timeout=5000)
 
     # 1. Gold Bar
@@ -107,11 +99,8 @@ async def scrape_classic_version(page: Page) -> Dict[str, Any]:
     rows = await page.locator("#DetailPlace_MainGridView tr:has(td)").all()
     for row in rows:
         cells = await row.locator("td").all()
-        # Classic GridView มี 9 ช่อง (วันที่กับเวลารวมกัน)
         if len(cells) >= 9:
             texts = await asyncio.gather(*[cell.inner_text() for cell in cells])
-            
-            # แยก Date/Time
             raw_dt = texts[0].strip().split()
             d_part = raw_dt[0] if len(raw_dt) > 0 else ""
             t_part = raw_dt[1] if len(raw_dt) > 1 else ""
@@ -120,7 +109,7 @@ async def scrape_classic_version(page: Page) -> Dict[str, Any]:
                 "date": d_part,
                 "time": t_part,
                 "round": texts[1].strip(),
-                "bullion_buy": texts[2].strip(),   # สังเกต index ต่างจากเว็บใหม่
+                "bullion_buy": texts[2].strip(),
                 "bullion_sell": texts[3].strip(),
                 "ornament_buy": texts[4].strip(),
                 "ornament_sell": texts[5].strip(),
@@ -150,19 +139,18 @@ async def scrape_classic_version(page: Page) -> Dict[str, Any]:
     return {"gold": gold_data, "jewelry": jewelry_data, "source": "Classic Website"}
 
 # ==============================================================================
-# 4. ORCHESTRATOR (ผู้ควบคุมการทำงาน - แบบ Sticky Mode)
+# 4. ORCHESTRATOR (Sticky Mode)
 # ==============================================================================
 async def update_all_data():
     global GLOBAL_CACHE
     now_str = get_thai_time().strftime('%H:%M:%S')
     
-    # ดึงค่า Source ที่จำไว้ (default คือ None)
+    # ดึงค่า Source ที่จำไว้ (Sticky Session)
     current_source = GLOBAL_CACHE.get("source_type", "None")
 
     if not browser_instance: return
 
     try:
-        # เปิด Page ใหม่ทุกรอบ
         context = await browser_instance.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         )
@@ -170,16 +158,14 @@ async def update_all_data():
         
         result_data = None
         
-        # ---------------------------------------------------------
-        # CASE 1: ถ้าเคยจำได้แล้วว่าใช้เว็บไหน ให้ใช้เว็บนั้นเลย (Fast Track)
-        # ---------------------------------------------------------
+        # --- PHASE 1: Fast Track (ถ้าจำได้ ใช้ตัวเดิม) ---
         if current_source == "New Website":
             print(f"🔄 [{now_str}] Fast Track: Using New Version...")
             try:
                 result_data = await scrape_new_version(page)
             except Exception as e:
                 print(f"   ⚠️ Sticky Source Failed: {e}")
-                current_source = "None" # สั่งรีเซ็ต เพื่อไปค้นหาใหม่ข้างล่าง
+                current_source = "None" # Reset to find new source
 
         elif current_source == "Classic Website":
             print(f"🔄 [{now_str}] Fast Track: Using Classic Version...")
@@ -187,45 +173,49 @@ async def update_all_data():
                 result_data = await scrape_classic_version(page)
             except Exception as e:
                 print(f"   ⚠️ Sticky Source Failed: {e}")
-                current_source = "None" # สั่งรีเซ็ต เพื่อไปค้นหาใหม่ข้างล่าง
+                current_source = "None" # Reset to find new source
 
-        # ---------------------------------------------------------
-        # CASE 2: ถ้ายังไม่รู้ (เพิ่งเริ่มวัน) หรือเว็บเดิมพัง (Discovery Mode)
-        # ---------------------------------------------------------
+        # --- PHASE 2: Discovery Mode (ถ้าไม่รู้ หรือตัวเดิมพัง) ---
         if current_source == "None" or result_data is None:
             print(f"🔍 [{now_str}] Discovery Mode: Finding active website...")
-            
-            # ลองเว็บใหม่ก่อน
             try:
                 result_data = await scrape_new_version(page)
             except Exception:
-                # ถ้าพัง ลองเว็บเก่าต่อ
                 try:
                     result_data = await scrape_classic_version(page)
                 except Exception:
                     print("   ❌ All sources failed.")
 
-        # ---------------------------------------------------------
-        # SAVE DATA & UPDATE LOCK
-        # ---------------------------------------------------------
+        # --- SAVE DATA ---
         if result_data:
             if result_data["gold"]: GLOBAL_CACHE["gold_bar_data"] = result_data["gold"]
             if result_data["jewelry"]: GLOBAL_CACHE["jewelry_percent"] = result_data["jewelry"]
             
-            # *** จุดสำคัญ: อัปเดต Source Type เพื่อจำไว้ใช้รอบหน้า ***
+            # จำ Source ไว้ใช้รอบหน้า
             GLOBAL_CACHE["source_type"] = result_data["source"]
             GLOBAL_CACHE["last_updated"] = get_thai_time().strftime("%Y-%m-%d %H:%M:%S")
             print(f"✅ Success! Locked on: {GLOBAL_CACHE['source_type']}")
         else:
-            # ถ้าหาไม่เจอเลย ให้ปลดล็อค รอรอบหน้าลองใหม่
             GLOBAL_CACHE["source_type"] = "None"
 
         await context.close()
 
     except Exception as e:
         print(f"🔥 Critical System Error: {e}")
-        # กรณี Error หนักๆ ให้รีเซ็ต Source เผื่อไว้
         GLOBAL_CACHE["source_type"] = "None"
+
+# *** ฟังก์ชันนี้คือตัวที่หายไป ทำให้เกิด Error ***
+async def run_scheduler():
+    while True:
+        is_open, status_msg = is_market_open()
+        GLOBAL_CACHE["market_status"] = status_msg
+        
+        if is_open:
+            await update_all_data()
+        else:
+            print(f"💤 Market Closed ({status_msg})")
+        
+        await asyncio.sleep(60)
 
 # ==============================================================================
 # 5. LIFESPAN & API ENDPOINTS
@@ -235,22 +225,20 @@ async def lifespan(app: FastAPI):
     global playwright_instance, browser_instance
     print("🚀 Hybrid System Starting...")
     
-    # เริ่ม Playwright
     playwright_instance = await async_playwright().start()
     browser_instance = await playwright_instance.chromium.launch(
         headless=True, 
         args=['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
     )
 
-    # ดึงข้อมูลรอบแรกทันทีไม่ต้องรอ
+    # รันครั้งแรกทันที
     await update_all_data()
     
-    # รัน Scheduler เบื้องหลัง
+    # รัน Scheduler (ต้องมีฟังก์ชัน run_scheduler ด้านบนก่อนเรียกใช้)
     asyncio.create_task(run_scheduler())
     
     yield
     
-    # ปิดระบบ
     print("🛑 System Stopping...")
     if browser_instance: await browser_instance.close()
     if playwright_instance: await playwright_instance.stop()
@@ -259,7 +247,6 @@ app = FastAPI(lifespan=lifespan)
 
 @app.get("/")
 def read_root(response: Response):
-    # Cache สั้นๆ
     response.headers["Cache-Control"] = "public, max-age=10, s-maxage=10"
     return {
         "message": "Thai Gold Price API (Hybrid Auto-Switch)",
@@ -270,16 +257,10 @@ def read_root(response: Response):
 
 @app.get("/api/latest")
 def get_latest(response: Response):
-    """
-    ดึงข้อมูลล่าสุดโดยอัตโนมัติ
-    - ถ้ามาจาก Classic: ล่าสุดคือ Index [0]
-    - ถ้ามาจาก New: ล่าสุดคือ Index [-1] (ตัวสุดท้าย)
-    """
     data = GLOBAL_CACHE["gold_bar_data"]
     if not data:
         return {"status": "waiting_for_data", "market_status": GLOBAL_CACHE["market_status"]}
     
-    # บอก Cloudflare ให้ Cache 60 วิ
     response.headers["Cache-Control"] = "public, max-age=60, s-maxage=60"
     
     # Logic เลือกข้อมูลล่าสุดตาม Source
@@ -287,7 +268,6 @@ def get_latest(response: Response):
     if GLOBAL_CACHE["source_type"] == "Classic Website":
         latest_item = data[0]
     else:
-        # Default for New Website (Usually appends to bottom)
         latest_item = data[-1]
 
     return {
@@ -299,13 +279,11 @@ def get_latest(response: Response):
 
 @app.get("/api/gold")
 def get_gold_buy_only(response: Response):
-    """ดึงเฉพาะราคารับซื้อ (Buy) เพื่อนำไปใช้ง่ายๆ"""
     data = GLOBAL_CACHE["gold_bar_data"]
     if not data: return {"status": "waiting_for_data"}
 
     response.headers["Cache-Control"] = "public, max-age=60, s-maxage=60"
 
-    # หาตัวล่าสุดด้วย Logic เดิม
     latest = {}
     if GLOBAL_CACHE["source_type"] == "Classic Website":
         latest = data[0]
@@ -322,7 +300,6 @@ def get_gold_buy_only(response: Response):
 
 @app.get("/api/history")
 def get_history(response: Response):
-    """ดึงประวัติราคาทั้งหมดที่มีในตาราง"""
     response.headers["Cache-Control"] = "public, max-age=60, s-maxage=60"
     return {
         "count": len(GLOBAL_CACHE["gold_bar_data"]),
@@ -333,7 +310,6 @@ def get_history(response: Response):
 
 @app.get("/api/percent_jewelry")
 def get_percent(response: Response):
-    """ดึงราคาทองรูปพรรณ (Jewelry)"""
     response.headers["Cache-Control"] = "public, max-age=60, s-maxage=60"
     return {
         "count": len(GLOBAL_CACHE["jewelry_percent"]),
