@@ -50,18 +50,6 @@ It automatically detects which version is active and switches scraping logic in 
 
 ---
 
-## 🏗️ Architecture Overview
-
-<p align="center">
-  <img src="architecture-overview.png" alt="Architecture Overview" width="900" />
-</p>
-
-**Design principle:**
-
-> *Fetch once. Cache aggressively. Serve many.*
-
----
-
 ## 🔌 API Endpoints
 
 | Method | Endpoint               | Description                                |
@@ -125,4 +113,5 @@ This project is open‑source and released under the **MIT License**.
 ---
 
 <p align="center">Made with ❤️ for Thai Developers</p>
+
 
