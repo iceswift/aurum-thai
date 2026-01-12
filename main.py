@@ -4,6 +4,7 @@ from playwright.async_api import async_playwright, Browser, Page
 import uvicorn
 import asyncio
 import datetime
+import shops
 from typing import Dict, Any, Optional, List
 
 # ==============================================================================
@@ -15,6 +16,8 @@ GLOBAL_CACHE: Dict[str, Any] = {
     "last_updated": None,     # เวลาที่อัปเดตล่าสุด
     "market_status": "Initializing...",
     "source_type": "None"     # เก็บสถานะว่าใช้เว็บไหนอยู่ (New/Classic/None)
+    "shops_data": [],       # เก็บข้อมูลร้านค้า
+    "shops_updated": None
 }
 
 playwright_instance = None
@@ -217,6 +220,18 @@ async def run_scheduler():
         
         await asyncio.sleep(60)
 
+async def update_shops_worker():
+    while True:
+        if browser_instance:
+            print("🏪 Updating Shops Data...")
+            data = await shops.get_all_shops_data(browser_instance)
+            if data:
+                GLOBAL_CACHE["shops_data"] = data
+                GLOBAL_CACHE["shops_updated"] = get_thai_time().strftime("%Y-%m-%d %H:%M:%S")
+                print(f"✅ Shops Updated: {len(data)} shops found.")
+        
+        await asyncio.sleep(300) # รอ 5 นาที (300 วินาที) ค่อยดึงใหม่ ป้องกันโดนแบน
+
 # ==============================================================================
 # 5. LIFESPAN & API ENDPOINTS
 # ==============================================================================
@@ -244,6 +259,19 @@ async def lifespan(app: FastAPI):
     if playwright_instance: await playwright_instance.stop()
 
 app = FastAPI(lifespan=lifespan)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # ... (Start Browser เดิม) ...
+    
+    # รัน Worker ของสมาคมฯ (เดิม)
+    asyncio.create_task(run_scheduler())
+    
+    # รัน Worker ของร้านค้า (ใหม่)
+    asyncio.create_task(update_shops_worker())
+    
+    yield
+    # ... (Close Browser เดิม) ...
 
 @app.get("/")
 def read_root(response: Response):
@@ -320,3 +348,12 @@ def get_percent(response: Response):
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+@app.get("/api/shops")
+def get_shops(response: Response):
+    response.headers["Cache-Control"] = "public, max-age=300" # Cache 5 นาที
+    return {
+        "status": "success",
+        "updated_at": GLOBAL_CACHE["shops_updated"],
+        "data": GLOBAL_CACHE["shops_data"]
+    }
