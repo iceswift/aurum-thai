@@ -7,6 +7,7 @@
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-009688?style=for-the-badge\&logo=fastapi)
 ![Playwright](https://img.shields.io/badge/Playwright-Async-45ba4b?style=for-the-badge\&logo=playwright)
 ![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=for-the-badge\&logo=docker)
+![License](https://img.shields.io/badge/License-MIT-purple?style=for-the-badge)
 
 ---
 
@@ -124,3 +125,4 @@ This project is open‑source and released under the **MIT License**.
 ---
 
 <p align="center">Made with ❤️ for Thai Developers</p>
+
