@@ -115,4 +115,5 @@ python main.py
 
 ---
 
-Made with ❤️ by **Mix Official**
+Made with ❤️ by **Suwiwat Sinsomboon**
+
