@@ -150,17 +150,19 @@ async def scrape_classic_version(page: Page) -> Dict[str, Any]:
     return {"gold": gold_data, "jewelry": jewelry_data, "source": "Classic Website"}
 
 # ==============================================================================
-# 4. ORCHESTRATOR (ผู้ควบคุมการทำงาน)
+# 4. ORCHESTRATOR (ผู้ควบคุมการทำงาน - แบบ Sticky Mode)
 # ==============================================================================
 async def update_all_data():
     global GLOBAL_CACHE
     now_str = get_thai_time().strftime('%H:%M:%S')
-    print(f"\n🔄 [{now_str}] Scraper Started...")
+    
+    # ดึงค่า Source ที่จำไว้ (default คือ None)
+    current_source = GLOBAL_CACHE.get("source_type", "None")
 
     if not browser_instance: return
 
     try:
-        # เปิด Page ใหม่ทุกรอบเพื่อความสะอาด (ป้องกัน Cache ค้างใน Browser)
+        # เปิด Page ใหม่ทุกรอบ
         context = await browser_instance.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         )
@@ -168,49 +170,62 @@ async def update_all_data():
         
         result_data = None
         
-        # --- PLAN A: ลองเว็บใหม่ก่อน ---
-        try:
-            result_data = await scrape_new_version(page)
-        except Exception as e:
-            print(f"   ❌ New Version Failed: {e}")
-            print("   🔀 Switching to Fallback (Classic)...")
-            
-            # --- PLAN B: ถ้าเว็บใหม่พัง ให้ลองเว็บเก่า ---
+        # ---------------------------------------------------------
+        # CASE 1: ถ้าเคยจำได้แล้วว่าใช้เว็บไหน ให้ใช้เว็บนั้นเลย (Fast Track)
+        # ---------------------------------------------------------
+        if current_source == "New Website":
+            print(f"🔄 [{now_str}] Fast Track: Using New Version...")
+            try:
+                result_data = await scrape_new_version(page)
+            except Exception as e:
+                print(f"   ⚠️ Sticky Source Failed: {e}")
+                current_source = "None" # สั่งรีเซ็ต เพื่อไปค้นหาใหม่ข้างล่าง
+
+        elif current_source == "Classic Website":
+            print(f"🔄 [{now_str}] Fast Track: Using Classic Version...")
             try:
                 result_data = await scrape_classic_version(page)
-            except Exception as e2:
-                print(f"   ❌ Classic Version Also Failed: {e2}")
+            except Exception as e:
+                print(f"   ⚠️ Sticky Source Failed: {e}")
+                current_source = "None" # สั่งรีเซ็ต เพื่อไปค้นหาใหม่ข้างล่าง
 
-        # --- UPDATE GLOBAL CACHE ---
-        if result_data:
-            # อัปเดตเฉพาะที่มีข้อมูล
-            if result_data["gold"]: 
-                GLOBAL_CACHE["gold_bar_data"] = result_data["gold"]
-            if result_data["jewelry"]: 
-                GLOBAL_CACHE["jewelry_percent"] = result_data["jewelry"]
+        # ---------------------------------------------------------
+        # CASE 2: ถ้ายังไม่รู้ (เพิ่งเริ่มวัน) หรือเว็บเดิมพัง (Discovery Mode)
+        # ---------------------------------------------------------
+        if current_source == "None" or result_data is None:
+            print(f"🔍 [{now_str}] Discovery Mode: Finding active website...")
             
+            # ลองเว็บใหม่ก่อน
+            try:
+                result_data = await scrape_new_version(page)
+            except Exception:
+                # ถ้าพัง ลองเว็บเก่าต่อ
+                try:
+                    result_data = await scrape_classic_version(page)
+                except Exception:
+                    print("   ❌ All sources failed.")
+
+        # ---------------------------------------------------------
+        # SAVE DATA & UPDATE LOCK
+        # ---------------------------------------------------------
+        if result_data:
+            if result_data["gold"]: GLOBAL_CACHE["gold_bar_data"] = result_data["gold"]
+            if result_data["jewelry"]: GLOBAL_CACHE["jewelry_percent"] = result_data["jewelry"]
+            
+            # *** จุดสำคัญ: อัปเดต Source Type เพื่อจำไว้ใช้รอบหน้า ***
             GLOBAL_CACHE["source_type"] = result_data["source"]
             GLOBAL_CACHE["last_updated"] = get_thai_time().strftime("%Y-%m-%d %H:%M:%S")
-            print(f"✅ Success! Data updated from: {GLOBAL_CACHE['source_type']}")
+            print(f"✅ Success! Locked on: {GLOBAL_CACHE['source_type']}")
         else:
-            print("🔥 All methods failed. Keeping old cached data.")
+            # ถ้าหาไม่เจอเลย ให้ปลดล็อค รอรอบหน้าลองใหม่
+            GLOBAL_CACHE["source_type"] = "None"
 
         await context.close()
 
     except Exception as e:
         print(f"🔥 Critical System Error: {e}")
-
-async def run_scheduler():
-    while True:
-        is_open, status_msg = is_market_open()
-        GLOBAL_CACHE["market_status"] = status_msg
-        
-        if is_open:
-            await update_all_data()
-        else:
-            print(f"💤 Market Closed ({status_msg})")
-        
-        await asyncio.sleep(60)
+        # กรณี Error หนักๆ ให้รีเซ็ต Source เผื่อไว้
+        GLOBAL_CACHE["source_type"] = "None"
 
 # ==============================================================================
 # 5. LIFESPAN & API ENDPOINTS
