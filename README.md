@@ -1,138 +1,126 @@
-# 🏆 Thai Gold Price API
+# 🏅 Thai Gold Price API
 
-> **High‑Performance • Auto‑Scaling • Market‑Aware**
+> **Hybrid Auto‑Switch Scraper for an Unstable Official Source**
+> Built to survive real‑world website changes from the Thai Gold Traders Association.
 
-![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=for-the-badge\&logo=python)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.109-green?style=for-the-badge\&logo=fastapi)
-![Playwright](https://img.shields.io/badge/Playwright-Async-orange?style=for-the-badge\&logo=playwright)
+![Python](https://img.shields.io/badge/Python-3.10+-blue?style=for-the-badge\&logo=python)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-009688?style=for-the-badge\&logo=fastapi)
+![Playwright](https://img.shields.io/badge/Playwright-Async-45ba4b?style=for-the-badge\&logo=playwright)
 ![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=for-the-badge\&logo=docker)
-![License](https://img.shields.io/badge/License-MIT-purple?style=for-the-badge)
-
-**The Ultimate Gold Price API for Developers.**
-Scrape once, cache smartly, and serve Thai gold prices at lightning speed—built to handle **100k+ concurrent users** with CDN offloading.
-
-🌐 **Live Demo:** [https://api.thaigoldview.com](https://api.thaigoldview.com)
-*(Replace with your actual URL)*
 
 ---
 
-## 🚀 Key Features
+## 🚀 Why This Project Exists
 
-* ⚡ **High Performance** — Powered by **FastAPI** + **Async Playwright**
-* 🧠 **Smart In‑Memory Caching** — No DB required; microsecond responses
-* 🤖 **Auto‑Scraping Worker** — Background refresh every **60 seconds**
-* 🛡️ **Cloudflare Ready** — `Cache-Control: s-maxage=60`
-* 🕒 **Market‑Aware** — Sleeps on **Sundays** & outside **09:00–17:30 (UTC+7)**
-* ♻️ **Resource Optimized** — **Singleton browser** to minimize RAM
+The official Thai Gold Traders Association website (`goldtraders.or.th`) is **not stable**.
+
+It frequently switches between:
+
+1. **Modern UI** — clean routes, dynamic layouts
+2. **Legacy UI** — classic `.aspx` pages with GridViews
+
+Most scrapers **break immediately** when the structure changes.
+
+👉 **This API does not.**
+It automatically detects which version is active and switches scraping logic in real time — **no manual intervention required**.
 
 ---
 
-### 🏗️ Architecture
+## ✨ Key Features
 
-- 📱 Client / App
-- ☁️ Cloudflare CDN
-- 🚀 FastAPI Server
-- 📦 In-Memory Cache
-- 🤖 Background Scheduler
-- 🕷️ Playwright Scraper
-end
+* 🔄 **Hybrid Auto‑Switching**
+  Tries the modern site first → falls back to legacy logic if redirected or blocked
 
+* ⚡ **Zero‑Latency Responses**
+  Background worker refreshes data every **60 seconds**
+  API serves directly from **RAM (in‑memory cache)**
+
+* 🕒 **Market‑Aware Scheduler**
+  Runs only during Thai market hours
+  **Mon–Sat, 09:00–17:30 (UTC+7)**
+  Sleeps on Sundays and off‑hours
+
+* 🛡️ **Cloudflare‑Friendly**
+  Proper `Cache-Control (s-maxage)` headers
+  Designed to scale beyond **100k concurrent users**
+
+* 🐳 **Docker Native**
+  One‑command deploy on Railway, Render, or any VPS
+
+---
+
+## 🏗️ Architecture Overview
+
+<p align="center">
+  <img src="architecture-overview.png" alt="Architecture Overview" width="900" />
+</p>
+
+**Design principle:**
+
+> *Fetch once. Cache aggressively. Serve many.*
 
 ---
 
 ## 🔌 API Endpoints
 
-**Base URL:** `https://api.thaigoldview.com`
-
-### 1) Get Latest Prices (Full Data)
-
-Returns market status, all prices, and timestamps.
-
-`GET /api/latest`
-
-```json
-{
-  "status": "success",
-  "market_status": "Open",
-  "data": {
-    "date": "10/06/2567",
-    "time": "14:30",
-    "bullion_buy": "40,100",
-    "bullion_sell": "40,200",
-    "ornament_buy": "39,385.00",
-    "ornament_sell": "40,700",
-    "change": "+50"
-  },
-  "updated_at": "2024-06-10 14:30:15"
-}
-```
-
-### 2) Gold Bar Only (Simplified)
-
-`GET /api/gold`
-
-### 3) Jewelry Prices (By Weight)
-
-`GET /api/weight_jewelry`
-
-### 4) Jewelry Prices (By Percentage)
-
-`GET /api/percent_jewelry`
+| Method | Endpoint               | Description                                |
+| ------ | ---------------------- | ------------------------------------------ |
+| GET    | `/`                    | System status, active source, last update  |
+| GET    | `/api/latest`          | **Most used** — latest gold price snapshot |
+| GET    | `/api/gold`            | Simplified buy/sell prices only            |
+| GET    | `/api/history`         | Full price history (current day)           |
+| GET    | `/api/percent_jewelry` | Jewelry prices by purity (96.5%, etc.)     |
 
 ---
 
-## 🛠️ Installation & Local Run
+## 📦 Installation & Running
 
-### Prerequisites
+### Option 1: Docker (Recommended)
 
-* Python **3.10+**
-* Docker *(optional, recommended)*
-
-### Option A: Run with Python
+Playwright requires specific browser dependencies. Docker handles this cleanly.
 
 ```bash
-# Clone
-https://github.com/your-username/thai-gold-api.git
-cd thai-gold-api
+# Build image
+docker build -t gold-api .
 
-# Install deps
+# Run container
+docker run -d -p 8000:8000 --name gold-api gold-api
+```
+
+---
+
+### Option 2: Local Development
+
+**Requirements:** Python 3.10+
+
+```bash
+# Install dependencies
 pip install -r requirements.txt
+
+# Install Playwright browser
 playwright install chromium
 
-# Run
+# Run server
 uvicorn main:app --reload
 ```
 
-### Option B: Run with Docker (Recommended)
+---
 
-```bash
-# Build
-docker build -t gold-api .
+## ☁️ Deployment (Railway)
 
-# Run (auto‑restart)
-docker run -d -p 8000:8000 --restart always gold-api
-```
+1. Push repository to GitHub
+2. Create a new project on **Railway**
+3. Select your repository
+4. Railway auto‑detects the `Dockerfile` and builds everything
+
+✅ Your API is live.
 
 ---
 
-## ☁️ Deployment (Railway + Cloudflare)
+## 📝 License
 
-1. **Push to GitHub** — Upload your repository
-2. **Deploy on Railway** — Auto‑detects `Dockerfile`
-3. **Custom Domain** — Map `api.thaigoldview.com`
-4. **Cloudflare**
-
-   * Add **CNAME** → Railway
-   * Enable **Proxy (Orange Cloud)**
-   * Page Rule: **Cache Everything** for `api.thaigoldview.com/*`
+This project is open‑source and released under the **MIT License**.
 
 ---
 
-## 📝 Disclaimer
-
-This API scrapes data from publicly available sources for **educational and personal use**. Please respect the source website’s **Terms of Service**.
-
----
-
-### ❤️ Made with love by **Suwiwat Sinsomboon**
-
+<p align="center">Made with ❤️ for Thai Developers</p>
