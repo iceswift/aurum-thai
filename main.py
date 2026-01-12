@@ -7,6 +7,12 @@ import datetime
 import shops
 from typing import Dict, Any, Optional, List
 
+# สร้าง instance ของ FastAPI
+app = FastAPI()
+
+# กำหนด Timeout ทั่วไป 60 วินาที
+TIMEOUT_MS = 60000
+
 # ==============================================================================
 # 1. CENTRAL DATA STORE (กองกลางเก็บข้อมูล)
 # ==============================================================================
@@ -15,7 +21,7 @@ GLOBAL_CACHE: Dict[str, Any] = {
     "jewelry_percent": [],    # เก็บราคาทองรูปพรรณ (เฉพาะ %)
     "last_updated": None,     # เวลาที่อัปเดตล่าสุด
     "market_status": "Initializing...",
-    "source_type": "None"     # เก็บสถานะว่าใช้เว็บไหนอยู่ (New/Classic/None)
+    "source_type": "None",     # เก็บสถานะว่าใช้เว็บไหนอยู่ (New/Classic/None)
     "shops_data": [],       # เก็บข้อมูลร้านค้า
     "shops_updated": None
 }
@@ -40,6 +46,151 @@ def is_market_open():
     if datetime.time(9, 0, 0) <= current <= datetime.time(17, 30, 0):
         return True, "Open"
     return False, "Closed (Outside Hours)"
+
+def get_aurora(page):
+    url = "https://www.aurora.co.th/price/gold_pricelist/ราคาทองวันนี้"
+    data = {"name": "Aurora", "url": url, "error": None}
+    try:
+        page.goto(url, timeout=TIMEOUT_MS)
+        time.sleep(2) # รอโหลดนิดหน่อย
+        
+        # รอ element
+        page.wait_for_selector(".goldden_out h3.g-price", timeout=TIMEOUT_MS)
+        
+        sell = page.locator(".goldden_out h3.g-price").inner_text().strip()
+        buy = page.locator(".goldden_in h3.g-price").inner_text().strip()
+        
+        data["prices"] = {
+            "gold_bar_965": {"buy": buy, "sell": sell}
+        }
+    except Exception as e:
+        data["error"] = str(e)
+    return data
+
+def get_mts(page):
+    url = "https://www.mtsgold.co.th/mts-price-sm/"
+    data = {"name": "MTS Gold", "url": url, "error": None}
+    try:
+        page.goto(url, timeout=TIMEOUT_MS)
+        time.sleep(2)
+        page.wait_for_selector("#buy965mts", timeout=TIMEOUT_MS)
+        
+        data["prices"] = {
+            "gold_bar_965": {
+                "buy": page.locator("#buy965mts").inner_text().strip(),
+                "sell": page.locator("#sell965mts").inner_text().strip()
+            },
+            "gold_bar_9999": {
+                "buy": page.locator("#buy9999mts").inner_text().strip(),
+                "sell": page.locator("#sell9999mts").inner_text().strip()
+            },
+            "ornament_buyback": {}
+        }
+        
+        # เพิ่มราคารับซื้อคืนรูปพรรณ
+        if page.locator("#sell965gold").is_visible():
+            data["prices"]["ornament_buyback"] = {
+                "baht": page.locator("#sell965gold").inner_text().strip(),
+                "gram": page.locator("#sell965grm").inner_text().strip()
+            }
+            
+    except Exception as e:
+        data["error"] = str(e)
+    return data
+
+def get_hua_seng_heng(page):
+    url = "https://www.huasengheng.com"
+    data = {"name": "Hua Seng Heng", "url": url, "error": None}
+    try:
+        page.goto(url, timeout=TIMEOUT_MS)
+        time.sleep(2)
+        page.wait_for_selector("#bid965", timeout=TIMEOUT_MS)
+        
+        data["prices"] = {
+            "gold_bar_965": {
+                "buy": page.locator("#bid965").first.inner_text().strip(),
+                "sell": page.locator("#ask965").first.inner_text().strip()
+            }
+        }
+        
+        if page.locator("#bidjewelry").first.is_visible():
+            data["prices"]["gold_ornament_965"] = {
+                "buy": page.locator("#bidjewelry").first.inner_text().strip(),
+                "sell": page.locator("#askjewelry").first.inner_text().strip()
+            }
+            
+        if page.locator("#bid9999").first.is_visible():
+            data["prices"]["gold_bar_9999"] = {
+                "buy": page.locator("#bid9999").first.inner_text().strip(),
+                "sell": page.locator("#ask9999").first.inner_text().strip()
+            }
+    except Exception as e:
+        data["error"] = str(e)
+    return data
+
+def get_ausiris(page):
+    # ต้องมี https:// เสมอ
+    url = "http://www.ausiris.co.th/content/index/goldprice.html"
+    data = {"name": "Ausiris", "url": url, "error": None}
+    try:
+        page.goto(url, timeout=TIMEOUT_MS)
+        
+        # --- จุดที่รอ 30 วินาที ตามที่ขอ ---
+        print("Ausiris: Waiting 30s...")
+        time.sleep(30) 
+        
+        try:
+            page.wait_for_selector("#G965B_bid", timeout=TIMEOUT_MS)
+            
+            data["prices"] = {
+                "gold_bar_965": {
+                    "buy": page.locator("#G965B_bid").inner_text().strip(),
+                    "sell": page.locator("#G965B_offer").inner_text().strip()
+                }
+            }
+            
+            if page.locator("#G9999B_bid").is_visible():
+                data["prices"]["gold_bar_9999"] = {
+                    "buy": page.locator("#G9999B_bid").inner_text().strip(),
+                    "sell": page.locator("#G9999B_offer").inner_text().strip()
+                }
+        except:
+            data["error"] = "Timeout waiting for price table (30s+)"
+            
+    except Exception as e:
+        data["error"] = str(e)
+    return data
+
+def get_shop_5(page):
+    url = "https://chinhuaheng.com/gold"
+    data = {"name": "Chin Hua Heng", "url": url, "error": None}
+    try:
+        page.goto(url, timeout=TIMEOUT_MS)
+        time.sleep(5)
+        
+        page.wait_for_selector("#gpb-chh-offer", state="visible", timeout=TIMEOUT_MS)
+        
+        sell = page.locator("#gpb-chh-offer").inner_text().strip()
+        buy = page.locator("#gpb-chh-bid").inner_text().strip()
+        
+        data["prices"] = {
+            "gold_bar_965": {"buy": buy, "sell": sell}
+        }
+        
+        if page.locator("#g99Offer").is_visible():
+            data["prices"]["gold_bar_9999"] = {
+                "sell": page.locator("#g99Offer").inner_text().strip(),
+                "buy": page.locator("#g99Bid").inner_text().strip()
+            }
+            
+        if page.locator("#g965Bath").is_visible():
+            data["prices"]["gold_ornament_965"] = {
+                "sell": page.locator("#g965Bath").inner_text().strip()
+            }
+            
+    except Exception as e:
+        data["error"] = str(e)
+    return data
 
 # ==============================================================================
 # 3. SCRAPING LOGIC (แยกฟังก์ชันตามเวอร์ชันเว็บ)
@@ -220,18 +371,6 @@ async def run_scheduler():
         
         await asyncio.sleep(60)
 
-async def update_shops_worker():
-    while True:
-        if browser_instance:
-            print("🏪 Updating Shops Data...")
-            data = await shops.get_all_shops_data(browser_instance)
-            if data:
-                GLOBAL_CACHE["shops_data"] = data
-                GLOBAL_CACHE["shops_updated"] = get_thai_time().strftime("%Y-%m-%d %H:%M:%S")
-                print(f"✅ Shops Updated: {len(data)} shops found.")
-        
-        await asyncio.sleep(300) # รอ 5 นาที (300 วินาที) ค่อยดึงใหม่ ป้องกันโดนแบน
-
 # ==============================================================================
 # 5. LIFESPAN & API ENDPOINTS
 # ==============================================================================
@@ -349,11 +488,38 @@ def get_percent(response: Response):
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
 
-@app.get("/api/shops")
-def get_shops(response: Response):
-    response.headers["Cache-Control"] = "public, max-age=300" # Cache 5 นาที
+@app.get("/scrape")
+def scrape_data():
+    """
+    Endpoint สำหรับสั่งให้ดึงข้อมูลราคาทองคำ
+    ระวัง: การเรียก API นี้จะใช้เวลานานกว่า 30-40 วินาที เพราะมีการรอโหลดหน้าเว็บ
+    """
+    results = []
+    
+    with sync_playwright() as p:
+        # Headless = True (ไม่แสดงหน้าต่าง)
+        browser = p.chromium.launch(headless=True)
+        
+        # ตั้งค่าหน้าจอเหมือน Desktop
+        context = browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            viewport={"width": 1920, "height": 1080}
+        )
+        page = context.new_page()
+
+        # ดึงข้อมูลทีละร้าน
+        results.append(get_aurora(page))
+        results.append(get_mts(page))
+        results.append(get_hua_seng_heng(page))
+        results.append(get_ausiris(page))
+        results.append(get_shop_5(page))
+        
+        browser.close()
+
+    # ส่งค่ากลับเป็น JSON (Dictionary ใน Python)
+    # ตรงนี้คือจุดที่เคย Error เรื่องลูกน้ำ ผมจัด Format ให้ถูกต้องแล้ว
     return {
         "status": "success",
-        "updated_at": GLOBAL_CACHE["shops_updated"],
-        "data": GLOBAL_CACHE["shops_data"]
+        "timestamp": datetime.now().isoformat(),
+        "data": results
     }
