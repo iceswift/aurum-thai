@@ -36,7 +36,7 @@ def is_market_open():
     if now.weekday() == 6: return False, "Closed (Sunday)"
     
     current = now.time()
-    if datetime.time(9, 0, 0) <= current <= datetime.time(17, 30, 0):
+    if datetime.time(9, 0, 0) <= current <= datetime.time(17, 45, 0):
         return True, "Open"
     return False, "Closed (Outside Hours)"
 
