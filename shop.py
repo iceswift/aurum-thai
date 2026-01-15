@@ -14,16 +14,31 @@ async def scrape_aurora(context: BrowserContext) -> Dict[str, Any]:
     
     try:
         await page.goto(url, timeout=TIMEOUT_MS)
-        await asyncio.sleep(3)
+        await asyncio.sleep(5)
         
-        await page.wait_for_selector(".goldden_out h3.g-price", timeout=TIMEOUT_MS)
-        sell_price = await page.locator(".goldden_out h3.g-price").inner_text()
-        buy_price = await page.locator(".goldden_in h3.g-price").inner_text()
+        # รอให้ตารางโหลด (ใช้ class sortable1 ตาม HTML ที่ให้มา)
+        await page.wait_for_selector("table.sortable1 tbody tr", timeout=TIMEOUT_MS)
+        
+        # ดึงแถวแรกสุด (ข้อมูลล่าสุด)
+        latest_row = page.locator("table.sortable1 tbody tr").first
+        
+        tds = latest_row.locator("td")
+        
+        # td[1] = ทองแท่ง รับซื้อ
+        # td[2] = ทองแท่ง ขายออก
+        # td[3] = ทองรูปพรรณ รับซื้อ (colspan=2)
+        bullion_buy = await tds.nth(1).inner_text()
+        bullion_sell = await tds.nth(2).inner_text()
+        ornament_buy = await tds.nth(3).inner_text()
         
         result["data"] = {
             "gold_bar_965": {
-                "buy": buy_price.strip(),
-                "sell": sell_price.strip()
+                "buy": bullion_buy.strip(),
+                "sell": bullion_sell.strip()
+            },
+            "gold_ornament_965": {
+                "buy": ornament_buy.strip(),
+                "sell": "ไม่ระบุในตาราง"
             }
         }
         print(f"   [OK] Aurora Finished")
