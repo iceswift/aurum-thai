@@ -152,10 +152,11 @@ async def update_all_data():
 
     if not browser_instance: return
 
+    context = await browser_instance.new_context(
+        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    )
+    
     try:
-        context = await browser_instance.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        )
         page = await context.new_page()
         
         result_data = None
@@ -208,11 +209,14 @@ async def update_all_data():
             print(f"   ❌ Shop Scraping Error: {e}")
 
         GLOBAL_CACHE["last_updated"] = get_thai_time().strftime("%Y-%m-%d %H:%M:%S")
-        await context.close()
 
     except Exception as e:
         print(f"🔥 Critical System Error: {e}")
         GLOBAL_CACHE["source_type"] = "None"
+    
+    finally:
+        # 🛡️ CLEANUP: Always close the context!
+        await context.close()
 
 async def run_scheduler():
     while True:
