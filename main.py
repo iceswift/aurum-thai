@@ -144,7 +144,7 @@ async def scrape_classic_version(page: Page) -> Dict[str, Any]:
 # 4. ORCHESTRATOR (Sticky Mode)
 # ==============================================================================
 
-async def update_all_data(scrape_shops: bool = False):
+async def update_all_data(scrape_gold: bool = True, scrape_shops: bool = False):
     global GLOBAL_CACHE
     now_str = get_thai_time().strftime('%H:%M:%S')
     
@@ -162,44 +162,39 @@ async def update_all_data(scrape_shops: bool = False):
         
         result_data = None
         
-        # --- PHASE 1: Fast Track (ถ้าจำได้ ใช้ตัวเดิม) ---
-        if current_source == "New Website":
-            # print(f"🔄 [{now_str}] Fast Track: Using New Version...")
-            try:
-                result_data = await scrape_new_version(page)
-            except Exception as e:
-                # print(f"   ⚠️ Sticky Source Failed: {e}")
-                current_source = "None" # Reset to find new source
+        # --- PHASE 1 & 2: Gold Traders (Only if requested) ---
+        if scrape_gold:
+            # --- PHASE 1: Fast Track ---
+            if current_source == "New Website":
+                try:
+                    result_data = await scrape_new_version(page)
+                except Exception:
+                    current_source = "None"
 
-        elif current_source == "Classic Website":
-            # print(f"🔄 [{now_str}] Fast Track: Using Classic Version...")
-            try:
-                result_data = await scrape_classic_version(page)
-            except Exception as e:
-                # print(f"   ⚠️ Sticky Source Failed: {e}")
-                current_source = "None" # Reset to find new source
-
-        # --- PHASE 2: Discovery Mode (ถ้าไม่รู้ หรือตัวเดิมพัง) ---
-        if current_source == "None" or result_data is None:
-            print(f"🔍 [{now_str}] Discovery Mode: Finding active website...")
-            try:
-                result_data = await scrape_new_version(page)
-            except Exception:
+            elif current_source == "Classic Website":
                 try:
                     result_data = await scrape_classic_version(page)
                 except Exception:
-                    print("   ❌ All sources failed.")
+                    current_source = "None"
 
-        # --- SAVE DATA ---
-        if result_data:
-            if result_data["gold"]: GLOBAL_CACHE["gold_bar_data"] = result_data["gold"]
-            if result_data["jewelry"]: GLOBAL_CACHE["jewelry_percent"] = result_data["jewelry"]
-            
-            # จำ Source ไว้ใช้รอบหน้า
-            GLOBAL_CACHE["source_type"] = result_data["source"]
-            # print(f"✅ Success! Locked on: {GLOBAL_CACHE['source_type']}")
-        else:
-            GLOBAL_CACHE["source_type"] = "None"
+            # --- PHASE 2: Discovery Mode ---
+            if current_source == "None" or result_data is None:
+                # print(f"🔍 [{now_str}] Discovery Mode: Finding active website...")
+                try:
+                    result_data = await scrape_new_version(page)
+                except Exception:
+                    try:
+                        result_data = await scrape_classic_version(page)
+                    except Exception:
+                        print("   ❌ All sources failed.")
+
+            # --- SAVE DATA ---
+            if result_data:
+                if result_data["gold"]: GLOBAL_CACHE["gold_bar_data"] = result_data["gold"]
+                if result_data["jewelry"]: GLOBAL_CACHE["jewelry_percent"] = result_data["jewelry"]
+                GLOBAL_CACHE["source_type"] = result_data["source"]
+            else:
+                GLOBAL_CACHE["source_type"] = "None"
 
         # --- PHASE 3: Shop Scraping (Parallel) - Only if requested ---
         if scrape_shops:
@@ -226,18 +221,22 @@ async def run_scheduler():
         is_open, status_msg = is_market_open()
         GLOBAL_CACHE["market_status"] = status_msg
         
-        # Gold Traders: ทำงานเฉพาะตอนตลาดเปิด (และทุกๆ 1 นาที)
-        if is_open:
-            await update_all_data(scrape_shops=False) # ดึงเฉพาะราคาสมาคม
-        else:
-             if tick_counter % 60 == 0: # ปริ้นบอกชั่วโมงละครั้งพอ ไม่ต้องปริ้นทุกนาทีให้รก Log
-                print(f"💤 Market Closed ({status_msg}) - Gold Traders Frozen")
-
-        # Shops: ทำงานตลอด 24 ชม. (ทุกๆ 5 นาที)
-        if tick_counter % 5 == 0:
-            await update_all_data(scrape_shops=True) # ดึงราคาร้านค้า (และราคาสมาคมด้วยถ้าตลาดเปิด)
+        # Logic: 
+        # 1. Gold Traders: ทำงานเฉพาะตอนตลาดเปิด (is_open=True)
+        # 2. Shops: ทำงานตลอด 24 ชม. ทุกๆ 5 นาที
         
-        await asyncio.sleep(60) # Loop หลักวิ่งทุก 60 วินาที
+        do_scrape_gold = is_open
+        do_scrape_shops = (tick_counter % 5 == 0)
+
+        # Optimization: เรียกฟังก์ชันเดียว จัดการทั้งคู่ (ไม่ต้องแยก if)
+        if do_scrape_gold or do_scrape_shops:
+             await update_all_data(scrape_gold=do_scrape_gold, scrape_shops=do_scrape_shops)
+        else:
+             if tick_counter % 60 == 0:
+                print(f"💤 Market Closed ({status_msg}) - Idle...")
+        
+        tick_counter += 1
+        await asyncio.sleep(60)
 
 # ==============================================================================
 # 5. LIFESPAN & API ENDPOINTS
