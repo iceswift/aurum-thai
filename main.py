@@ -226,17 +226,16 @@ async def run_scheduler():
         is_open, status_msg = is_market_open()
         GLOBAL_CACHE["market_status"] = status_msg
         
+        # Gold Traders: ทำงานเฉพาะตอนตลาดเปิด (และทุกๆ 1 นาที)
         if is_open:
-            # Gold Traders: ทุก 1 นาที (ทุก Loop)
-            # Shops: ทุก 5 นาที (ทุกๆ 5 Loop)
-            should_scrape_shops = (tick_counter % 5 == 0)
-            
-            await update_all_data(scrape_shops=should_scrape_shops)
-            
-            tick_counter += 1
+            await update_all_data(scrape_shops=False) # ดึงเฉพาะราคาสมาคม
         else:
-            print(f"💤 Market Closed ({status_msg})")
-            tick_counter = 0 # Reset counter when closed
+             if tick_counter % 60 == 0: # ปริ้นบอกชั่วโมงละครั้งพอ ไม่ต้องปริ้นทุกนาทีให้รก Log
+                print(f"💤 Market Closed ({status_msg}) - Gold Traders Frozen")
+
+        # Shops: ทำงานตลอด 24 ชม. (ทุกๆ 5 นาที)
+        if tick_counter % 5 == 0:
+            await update_all_data(scrape_shops=True) # ดึงราคาร้านค้า (และราคาสมาคมด้วยถ้าตลาดเปิด)
         
         await asyncio.sleep(60) # Loop หลักวิ่งทุก 60 วินาที
 
