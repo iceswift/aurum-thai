@@ -4,6 +4,14 @@ from typing import Dict, Any, List
 
 TIMEOUT_MS = 60000
 
+
+# --- Optimized Resource Blocker ---
+async def block_heavy_resources(page: Page):
+    await page.route("**/*", lambda route: route.abort() 
+        if route.request.resource_type in ["image", "media", "font", "stylesheet"] 
+        else route.continue_()
+    )
+
 async def scrape_aurora(context: BrowserContext) -> Dict[str, Any]:
     """ร้านที่ 1: Aurora"""
     url = "https://www.aurora.co.th/price/gold_pricelist/ราคาทองวันนี้"
@@ -11,6 +19,7 @@ async def scrape_aurora(context: BrowserContext) -> Dict[str, Any]:
     
     result = {"name": "Aurora", "data": {}, "error": None}
     page = await context.new_page()
+    await block_heavy_resources(page) # Block images/fonts
     
     try:
         await page.goto(url, timeout=TIMEOUT_MS)
@@ -58,6 +67,8 @@ async def scrape_mts_gold(context: BrowserContext) -> Dict[str, Any]:
     
     result = {"name": "MTS Gold", "data": {}, "error": None}
     page = await context.new_page()
+    await block_heavy_resources(page) # Block images/fonts
+    
     
     try:
         await page.goto(url, timeout=TIMEOUT_MS)
@@ -104,6 +115,7 @@ async def scrape_hua_seng_heng(context: BrowserContext) -> Dict[str, Any]:
     
     result = {"name": "Hua Seng Heng", "data": {}, "error": None}
     page = await context.new_page()
+    await block_heavy_resources(page) # Block images/fonts
     
     try:
         await page.goto(url, timeout=TIMEOUT_MS)
@@ -154,6 +166,7 @@ async def scrape_chin_hua_heng(context: BrowserContext) -> Dict[str, Any]:
     
     result = {"name": "Chin Hua Heng", "data": {}, "error": None}
     page = await context.new_page()
+    await block_heavy_resources(page) # Block images/fonts
     
     try:
         await page.goto(url, timeout=TIMEOUT_MS)
@@ -205,6 +218,7 @@ async def scrape_ausiris(context: BrowserContext) -> Dict[str, Any]:
     
     result = {"name": "Ausiris", "data": {}, "error": None}
     page = await context.new_page()
+    await block_heavy_resources(page) # Block images/fonts
     
     try:
         await page.goto(url, timeout=TIMEOUT_MS)
