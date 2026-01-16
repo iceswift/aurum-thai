@@ -143,7 +143,8 @@ async def scrape_classic_version(page: Page) -> Dict[str, Any]:
 # ==============================================================================
 # 4. ORCHESTRATOR (Sticky Mode)
 # ==============================================================================
-async def update_all_data():
+
+async def update_all_data(scrape_shops: bool = False):
     global GLOBAL_CACHE
     now_str = get_thai_time().strftime('%H:%M:%S')
     
@@ -163,19 +164,19 @@ async def update_all_data():
         
         # --- PHASE 1: Fast Track (ถ้าจำได้ ใช้ตัวเดิม) ---
         if current_source == "New Website":
-            print(f"🔄 [{now_str}] Fast Track: Using New Version...")
+            # print(f"🔄 [{now_str}] Fast Track: Using New Version...")
             try:
                 result_data = await scrape_new_version(page)
             except Exception as e:
-                print(f"   ⚠️ Sticky Source Failed: {e}")
+                # print(f"   ⚠️ Sticky Source Failed: {e}")
                 current_source = "None" # Reset to find new source
 
         elif current_source == "Classic Website":
-            print(f"🔄 [{now_str}] Fast Track: Using Classic Version...")
+            # print(f"🔄 [{now_str}] Fast Track: Using Classic Version...")
             try:
                 result_data = await scrape_classic_version(page)
             except Exception as e:
-                print(f"   ⚠️ Sticky Source Failed: {e}")
+                # print(f"   ⚠️ Sticky Source Failed: {e}")
                 current_source = "None" # Reset to find new source
 
         # --- PHASE 2: Discovery Mode (ถ้าไม่รู้ หรือตัวเดิมพัง) ---
@@ -196,17 +197,18 @@ async def update_all_data():
             
             # จำ Source ไว้ใช้รอบหน้า
             GLOBAL_CACHE["source_type"] = result_data["source"]
-            print(f"✅ Success! Locked on: {GLOBAL_CACHE['source_type']}")
+            # print(f"✅ Success! Locked on: {GLOBAL_CACHE['source_type']}")
         else:
             GLOBAL_CACHE["source_type"] = "None"
 
-        # --- PHASE 3: Shop Scraping (Parallel) ---
-        print(f"🏭 [{now_str}] Scraping 5 Shops...")
-        try:
-            shop_results = await scrape_all_shops(context)
-            GLOBAL_CACHE["shop_data"] = shop_results
-        except Exception as e:
-            print(f"   ❌ Shop Scraping Error: {e}")
+        # --- PHASE 3: Shop Scraping (Parallel) - Only if requested ---
+        if scrape_shops:
+            print(f"🏭 [{now_str}] Scraping 5 Shops...")
+            try:
+                shop_results = await scrape_all_shops(context)
+                GLOBAL_CACHE["shop_data"] = shop_results
+            except Exception as e:
+                print(f"   ❌ Shop Scraping Error: {e}")
 
         GLOBAL_CACHE["last_updated"] = get_thai_time().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -219,16 +221,24 @@ async def update_all_data():
         await context.close()
 
 async def run_scheduler():
+    tick_counter = 0
     while True:
         is_open, status_msg = is_market_open()
         GLOBAL_CACHE["market_status"] = status_msg
         
         if is_open:
-            await update_all_data()
+            # Gold Traders: ทุก 1 นาที (ทุก Loop)
+            # Shops: ทุก 5 นาที (ทุกๆ 5 Loop)
+            should_scrape_shops = (tick_counter % 5 == 0)
+            
+            await update_all_data(scrape_shops=should_scrape_shops)
+            
+            tick_counter += 1
         else:
             print(f"💤 Market Closed ({status_msg})")
+            tick_counter = 0 # Reset counter when closed
         
-        await asyncio.sleep(300)
+        await asyncio.sleep(60) # Loop หลักวิ่งทุก 60 วินาที
 
 # ==============================================================================
 # 5. LIFESPAN & API ENDPOINTS
