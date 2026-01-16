@@ -228,7 +228,7 @@ async def run_scheduler():
         else:
             print(f"💤 Market Closed ({status_msg})")
         
-        await asyncio.sleep(60)
+        await asyncio.sleep(300)
 
 # ==============================================================================
 # 5. LIFESPAN & API ENDPOINTS
