@@ -121,29 +121,32 @@ async def scrape_hua_seng_heng(context: BrowserContext) -> Dict[str, Any]:
         await page.goto(url, timeout=TIMEOUT_MS)
         await asyncio.sleep(5)
         
-        await page.wait_for_selector("#bid965", timeout=TIMEOUT_MS)
+        # ใช้ state="attached" แทน visible เพราะถ้า block css/image บางที element จะถูกมองว่า hidden
+        await page.wait_for_selector("#bid965", state="attached", timeout=TIMEOUT_MS)
         
         # 1. ทองคำแท่ง 96.5%
-        buy_965 = await page.locator("#bid965").first.inner_text()
-        sell_965 = await page.locator("#ask965").first.inner_text()
+        # ใช้ text_content() แทน inner_text() เพื่อดึงค่าแม้ element จะ hidden
+        buy_965 = await page.locator("#bid965").first.text_content()
+        sell_965 = await page.locator("#ask965").first.text_content()
         
         result["data"] = {
             "gold_bar_965": {"buy": buy_965.strip(), "sell": sell_965.strip()}
         }
         
         # 2. ทองรูปพรรณ
-        if await page.locator("#bidjewelry").first.is_visible():
-            buy_jewel = await page.locator("#bidjewelry").first.inner_text()
-            sell_jewel = await page.locator("#askjewelry").first.inner_text()
+        # เช็คการมีอยู่โดยไม่สน visible
+        if await page.locator("#bidjewelry").count() > 0:
+            buy_jewel = await page.locator("#bidjewelry").first.text_content()
+            sell_jewel = await page.locator("#askjewelry").first.text_content()
             result["data"]["ornament_965"] = {
                 "buy": buy_jewel.strip(),
                 "sell": sell_jewel.strip()
             }
 
         # 3. ทองคำแท่ง 99.99%
-        if await page.locator("#bid9999").first.is_visible():
-            buy_9999 = await page.locator("#bid9999").first.inner_text()
-            sell_9999 = await page.locator("#ask9999").first.inner_text()
+        if await page.locator("#bid9999").count() > 0:
+            buy_9999 = await page.locator("#bid9999").first.text_content()
+            sell_9999 = await page.locator("#ask9999").first.text_content()
             result["data"]["gold_bar_9999"] = {
                 "buy": buy_9999.strip(),
                 "sell": sell_9999.strip()
