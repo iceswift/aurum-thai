@@ -247,7 +247,8 @@ async def lifespan(app: FastAPI):
     print("🚀 Hybrid System Starting...")
     
     playwright_instance = await async_playwright().start()
-    browser_instance = await playwright_instance.chromium.launch(
+    # Switch to WebKit (Safari Engine) for lighter memory usage
+    browser_instance = await playwright_instance.webkit.launch(
         headless=True, 
         args=['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
     )
