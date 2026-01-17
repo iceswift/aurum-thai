@@ -4,6 +4,7 @@ from playwright.async_api import async_playwright, Browser, Page
 import uvicorn
 import asyncio
 import datetime
+import gc
 from typing import Dict, Any, Optional, List
 from shop import scrape_all_shops
 
@@ -214,6 +215,8 @@ async def update_all_data(scrape_gold: bool = True, scrape_shops: bool = False):
     finally:
         # 🛡️ CLEANUP: Always close the context!
         await context.close()
+        # 🗑️ Force Garbage Collection (ลดการสะสม Memory)
+        gc.collect()
 
 async def run_scheduler():
     tick_counter = 0
