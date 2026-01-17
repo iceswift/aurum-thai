@@ -328,12 +328,16 @@ async def lifespan(app: FastAPI):
     global playwright_instance, browser_instance
     print("🚀 Hybrid System Starting (with Hibernate Mode)...")
     
-    # รันครั้งแรกทันที (Wake up -> Scrape -> Scheduler will handle rest)
-    await start_browser()
-    await update_all_data(scrape_gold=True, scrape_shops=True)
-    
-    # รัน Scheduler
-    asyncio.create_task(run_scheduler())
+    # 1. ย้ายการทำงานหนัก (Initial Scrape) ไปไว้ใน Background Task
+    # เพื่อให้ FastAPI Start Server เสร็จทันที (ป้องกัน Error 502 / Health Check Timeout)
+    async def initial_startup():
+        print("⏳ Incoming: Initial Scrape (Background)...")
+        await start_browser()
+        await update_all_data(scrape_gold=True, scrape_shops=True)
+        # เริ่ม Scheduler หลังจาก Initial Scrape เสร็จ
+        asyncio.create_task(run_scheduler())
+
+    asyncio.create_task(initial_startup())
     
     yield
     
