@@ -118,39 +118,42 @@ async def scrape_hua_seng_heng(context: BrowserContext) -> Dict[str, Any]:
     await block_heavy_resources(page) # Block images/fonts
     
     try:
-        await page.goto(url, timeout=TIMEOUT_MS)
-        await asyncio.sleep(5)
+        # ปรับจูน HSH: รอแค่ DOM Ready พอ (ไม่ต้องรอ load) เพื่อลดโอกาส Crash
+        await page.goto(url, timeout=TIMEOUT_MS, wait_until="domcontentloaded")
         
-        # ใช้ state="attached" แทน visible เพราะถ้า block css/image บางที element จะถูกมองว่า hidden
-        await page.wait_for_selector("#bid965", state="attached", timeout=TIMEOUT_MS)
+        # ใส่ anti-crash sleep เล็กน้อย
+        await asyncio.sleep(2)
         
-        # 1. ทองคำแท่ง 96.5%
-        # ใช้ text_content() แทน inner_text() เพื่อดึงค่าแม้ element จะ hidden
-        buy_965 = await page.locator("#bid965").first.text_content()
-        sell_965 = await page.locator("#ask965").first.text_content()
-        
-        result["data"] = {
-            "gold_bar_965": {"buy": buy_965.strip(), "sell": sell_965.strip()}
-        }
-        
-        # 2. ทองรูปพรรณ
-        # เช็คการมีอยู่โดยไม่สน visible
-        if await page.locator("#bidjewelry").count() > 0:
-            buy_jewel = await page.locator("#bidjewelry").first.text_content()
-            sell_jewel = await page.locator("#askjewelry").first.text_content()
-            result["data"]["ornament_965"] = {
-                "buy": buy_jewel.strip(),
-                "sell": sell_jewel.strip()
+        # เช็คว่ามีข้อมูลไหมก่อนดึง (ใช้การดึงแบบ Safe Mode)
+        if await page.locator("#bid965").count() > 0:
+             # 1. ทองคำแท่ง 96.5%
+            buy_965 = await page.locator("#bid965").first.text_content()
+            sell_965 = await page.locator("#ask965").first.text_content()
+            
+            result["data"] = {
+                "gold_bar_965": {"buy": buy_965.strip(), "sell": sell_965.strip()}
             }
+            
+            # 2. ทองรูปพรรณ
+            if await page.locator("#bidjewelry").count() > 0:
+                buy_jewel = await page.locator("#bidjewelry").first.text_content()
+                sell_jewel = await page.locator("#askjewelry").first.text_content()
+                result["data"]["ornament_965"] = {
+                    "buy": buy_jewel.strip(),
+                    "sell": sell_jewel.strip()
+                }
 
-        # 3. ทองคำแท่ง 99.99%
-        if await page.locator("#bid9999").count() > 0:
-            buy_9999 = await page.locator("#bid9999").first.text_content()
-            sell_9999 = await page.locator("#ask9999").first.text_content()
-            result["data"]["gold_bar_9999"] = {
-                "buy": buy_9999.strip(),
-                "sell": sell_9999.strip()
-            }
+            # 3. ทองคำแท่ง 99.99%
+            if await page.locator("#bid9999").count() > 0:
+                buy_9999 = await page.locator("#bid9999").first.text_content()
+                sell_9999 = await page.locator("#ask9999").first.text_content()
+                result["data"]["gold_bar_9999"] = {
+                    "buy": buy_9999.strip(),
+                    "sell": sell_9999.strip()
+                }
+        else:
+             print("   ⚠️ Praw: HSH Element not found (Possible anti-bot or blocked)")
+             result["error"] = "Element not found (possible block)"
             
         print(f"   [OK] Hua Seng Heng Finished")
         
