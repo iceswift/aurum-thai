@@ -22,34 +22,38 @@ async def scrape_aurora(context: BrowserContext) -> Dict[str, Any]:
     await block_heavy_resources(page) # Block images/fonts
     
     try:
-        await page.goto(url, timeout=TIMEOUT_MS)
+        # ปรับจูน: รอแค่ DOM Ready (แก้ Timeout)
+        await page.goto(url, timeout=TIMEOUT_MS, wait_until="domcontentloaded")
         await asyncio.sleep(5)
         
-        # รอให้ตารางโหลด (ใช้ class sortable1 ตาม HTML ที่ให้มา)
-        await page.wait_for_selector("table.sortable1 tbody tr", timeout=TIMEOUT_MS)
-        
-        # ดึงแถวแรกสุด (ข้อมูลล่าสุด)
-        latest_row = page.locator("table.sortable1 tbody tr").first
-        
-        tds = latest_row.locator("td")
-        
-        # td[1] = ทองแท่ง รับซื้อ
-        # td[2] = ทองแท่ง ขายออก
-        # td[3] = ทองรูปพรรณ รับซื้อ (colspan=2)
-        bullion_buy = await tds.nth(1).inner_text()
-        bullion_sell = await tds.nth(2).inner_text()
-        ornament_buy = await tds.nth(3).inner_text()
-        
-        result["data"] = {
-            "gold_bar_965": {
-                "buy": bullion_buy.strip(),
-                "sell": bullion_sell.strip()
-            },
-            "gold_ornament_965": {
-                "buy": ornament_buy.strip(),
-                "sell": "ไม่ระบุในตาราง"
+        # Safe Check: ดูว่ามีตารางไหม
+        if await page.locator("table.sortable1 tbody tr").count() > 0:
+            # ดึงแถวแรกสุด (ข้อมูลล่าสุด)
+            latest_row = page.locator("table.sortable1 tbody tr").first
+            
+            tds = latest_row.locator("td")
+            
+            # td[1] = ทองแท่ง รับซื้อ
+            # td[2] = ทองแท่ง ขายออก
+            # td[3] = ทองรูปพรรณ รับซื้อ (colspan=2)
+            bullion_buy = await tds.nth(1).inner_text()
+            bullion_sell = await tds.nth(2).inner_text()
+            ornament_buy = await tds.nth(3).inner_text()
+            
+            result["data"] = {
+                "gold_bar_965": {
+                    "buy": bullion_buy.strip(),
+                    "sell": bullion_sell.strip()
+                },
+                "gold_ornament_965": {
+                    "buy": ornament_buy.strip(),
+                    "sell": "ไม่ระบุในตาราง"
+                }
             }
-        }
+        else:
+             print("   ⚠️ Aurora Table not found")
+             result["error"] = "Table not found"
+             
         print(f"   [OK] Aurora Finished")
         
     except Exception as e:
@@ -227,15 +231,16 @@ async def scrape_ausiris(context: BrowserContext) -> Dict[str, Any]:
     await block_heavy_resources(page) # Block images/fonts
     
     try:
-        await page.goto(url, timeout=TIMEOUT_MS)
+        # ปรับจูน: รอแค่ DOM Ready (แก้ Timeout)
+        await page.goto(url, timeout=TIMEOUT_MS, wait_until="domcontentloaded")
         
-        # รอ 15 วินาที
-        # print("   ...Ausiris waiting 15s...")
+        # รอ 15 วินาที (Ausiris มี Loading Spinner นาน)
         await asyncio.sleep(15)
         
-        try:
-            await page.wait_for_selector("#G965B_bid", timeout=TIMEOUT_MS)
-            
+        # Safe Check
+        if await page.locator("#G965B_bid").count() > 0:
+            # 1. ทอง 96.5% ร้าน
+            shop_buy_price = await page.locator("#G965B_bid").inner_text()
             # 1. ทอง 96.5% ร้าน
             shop_buy_price = await page.locator("#G965B_bid").inner_text()
             shop_sell_price = await page.locator("#G965B_offer").inner_text()
@@ -255,13 +260,12 @@ async def scrape_ausiris(context: BrowserContext) -> Dict[str, Any]:
                     "buy": buy_9999.strip(),
                     "sell": sell_9999.strip()
                 }
+        else:
+             print("   ⚠️ Ausiris Element not found (Possible anti-bot or blocked)")
+             result["error"] = "Element not found"
+
+        print(f"   [OK] Ausiris Finished")
             
-            print(f"   [OK] Ausiris Finished")
-            
-        except Exception:
-            print("   [X] Ausiris: Not found after wait")
-            result["error"] = "Table not found"
-        
     except Exception as e:
         print(f"   [X] Ausiris Error: {e}")
         result["error"] = str(e)
