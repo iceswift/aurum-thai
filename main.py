@@ -249,7 +249,14 @@ async def lifespan(app: FastAPI):
     playwright_instance = await async_playwright().start()
     browser_instance = await playwright_instance.chromium.launch(
         headless=True, 
-        args=['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+        args=[
+            '--no-sandbox', 
+            '--disable-setuid-sandbox', 
+            '--disable-dev-shm-usage',
+            '--disable-gpu',           # ลดภาระการ์ดจอ (ไม่มีผลมากบน Server แต่นิยมปิด)
+            '--disable-extensions',    # ปิด Extension ทั้งหมด
+            '--no-zygote'              # ลด Process ย่อย
+        ]
     )
 
     # รันครั้งแรกทันที
