@@ -247,7 +247,7 @@ async def lifespan(app: FastAPI):
     print("🚀 Hybrid System Starting...")
     
     playwright_instance = await async_playwright().start()
-    # Switch to WebKit (Safari Engine) for lighter memory usage
+    # Switch to WebKit (Safari Engine)
     browser_instance = await playwright_instance.webkit.launch(
         headless=True
     )
@@ -270,11 +270,10 @@ app = FastAPI(lifespan=lifespan)
 def read_root(response: Response):
     response.headers["Cache-Control"] = "public, max-age=10, s-maxage=10"
     return {
-        "message": "👋 Welcome to Thai Gold Price API",
-        "docs_url": "/docs",
+        "message": "Thai Gold Price API (Hybrid Auto-Switch)",
+        "source_used": GLOBAL_CACHE["source_type"],
         "market_status": GLOBAL_CACHE["market_status"],
-        "last_updated": GLOBAL_CACHE["last_updated"],
-        "source_used": GLOBAL_CACHE["source_type"]
+        "last_updated": GLOBAL_CACHE["last_updated"]
     }
 
 @app.get("/api/latest")
