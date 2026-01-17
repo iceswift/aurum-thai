@@ -333,7 +333,11 @@ async def lifespan(app: FastAPI):
     async def initial_startup():
         print("⏳ Incoming: Initial Scrape (Background)...")
         await start_browser()
+        
+        # Force Scrape: บังคับดึงข้อมูล 1 รอบตอนเปิด Server เสมอ (ไม่สนตลาดเปิด/ปิด)
+        # เพื่อให้มีข้อมูลใน Cache ไปแสดงผล (จะได้ไม่ขึ้น waiting_for_data)
         await update_all_data(scrape_gold=True, scrape_shops=True)
+        
         # เริ่ม Scheduler หลังจาก Initial Scrape เสร็จ
         asyncio.create_task(run_scheduler())
 
