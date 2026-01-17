@@ -31,13 +31,30 @@ def get_thai_time():
     return datetime.datetime.now(tz)
 
 def is_market_open():
-    """เช็คเวลาทำการตลาด (จันทร์-เสาร์ 09:00 - 17:30)"""
+    """
+    เช็คเวลาทำการตลาด Gold Traders
+    - จันทร์-ศุกร์: 09:00 - 17:45
+    - เสาร์: 09:00 - 09:30
+    - อาทิตย์: ปิด
+    """
     now = get_thai_time()
-    if now.weekday() == 6: return False, "Closed (Sunday)"
-    
+    weekday = now.weekday() # 0=Mon, 6=Sun
     current = now.time()
-    if datetime.time(9, 0, 0) <= current <= datetime.time(17, 45, 0):
-        return True, "Open"
+
+    # วันอาทิตย์ (6): ปิดตลอดวัน
+    if weekday == 6: 
+        return False, "Closed (Sunday)"
+    
+    # วันเสาร์ (5): เปิดแค่ 09:00 - 09:30
+    if weekday == 5:
+        if datetime.time(9, 0) <= current <= datetime.time(9, 30):
+            return True, "Open (Sat Morning)"
+        return False, "Closed (Sat > 09:30)"
+
+    # วันธรรมดา (0-4): เปิด 09:00 - 17:45
+    if datetime.time(9, 0) <= current <= datetime.time(17, 45):
+        return True, "Open (Weekday)"
+        
     return False, "Closed (Outside Hours)"
 
 def is_shop_open():
