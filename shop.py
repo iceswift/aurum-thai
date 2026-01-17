@@ -241,8 +241,6 @@ async def scrape_ausiris(context: BrowserContext) -> Dict[str, Any]:
         if await page.locator("#G965B_bid").count() > 0:
             # 1. ทอง 96.5% ร้าน
             shop_buy_price = await page.locator("#G965B_bid").inner_text()
-            # 1. ทอง 96.5% ร้าน
-            shop_buy_price = await page.locator("#G965B_bid").inner_text()
             shop_sell_price = await page.locator("#G965B_offer").inner_text()
             
             result["data"] = {
