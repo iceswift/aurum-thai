@@ -181,8 +181,42 @@ async def scrape_classic_version(page: Page) -> Dict[str, Any]:
     return {"gold": gold_data, "jewelry": jewelry_data, "source": "Classic Website"}
 
 # ==============================================================================
-# 4. ORCHESTRATOR (Sticky Mode)
+# 4. ORCHESTRATOR & LIFECYCLE MANAGEMENT
 # ==============================================================================
+
+async def start_browser():
+    global playwright_instance, browser_instance
+    if browser_instance: return 
+
+    # print("🚀 [System] Waking up... Starting Browser Engine")
+    playwright_instance = await async_playwright().start()
+    browser_instance = await playwright_instance.chromium.launch(
+        headless=True,
+        args=[
+            '--no-sandbox', 
+            '--disable-setuid-sandbox', 
+            '--disable-dev-shm-usage',
+            '--disable-gpu',
+            '--disable-extensions',
+            '--no-zygote'
+        ]
+    )
+
+async def stop_browser():
+    global playwright_instance, browser_instance
+    if not browser_instance: return 
+
+    print("💤 [System] Hibernate Mode... Shutting down Browser Engine")
+    try:
+        if browser_instance:
+            await browser_instance.close()
+        if playwright_instance:
+            await playwright_instance.stop()
+    except Exception as e:
+        print(f"   ⚠️ Shutdown Warning: {e}")
+    finally:
+        browser_instance = None
+        playwright_instance = None
 
 async def update_all_data(scrape_gold: bool = True, scrape_shops: bool = False):
     global GLOBAL_CACHE
@@ -191,7 +225,9 @@ async def update_all_data(scrape_gold: bool = True, scrape_shops: bool = False):
     # ดึงค่า Source ที่จำไว้ (Sticky Session)
     current_source = GLOBAL_CACHE.get("source_type", "None")
 
-    if not browser_instance: return
+    if not browser_instance: 
+        print("❌ Error: Browser not running!")
+        return
 
     context = await browser_instance.new_context(
         user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -259,23 +295,27 @@ async def run_scheduler():
     tick_counter = 0
     while True:
         is_open, status_msg = is_market_open()
-        GLOBAL_CACHE["market_status"] = status_msg
+        is_shops_active, shop_status_msg = is_shop_open()
+        
+        GLOBAL_CACHE["market_status"] = f"{status_msg} | {shop_status_msg}"
         
         # Logic: 
-        # 1. Gold Traders: ทำงานเฉพาะตอนตลาดเปิด (is_market_open=True)
-        # 2. Shops: ทำงานตลอด ยกเว้นช่วงปิดสุดสัปดาห์ (is_shop_open=True) + run ทุก 5 นาที
-        
-        is_shops_active, shop_status_msg = is_shop_open()
+        # 1. Gold Traders: ทำงานเฉพาะตอนตลาดเปิด
+        # 2. Shops: ทำงานตลอด ยกเว้นช่วงปิดสุดสัปดาห์
         
         do_scrape_gold = is_open
         do_scrape_shops = is_shops_active and (tick_counter % 5 == 0)
 
-        # Optimization: เรียกฟังก์ชันเดียว จัดการทั้งคู่ (ไม่ต้องแยก if)
+        # Optimization: Hibernate (Auto-Wake / Auto-Sleep)
         if do_scrape_gold or do_scrape_shops:
+             # Wake Up
+             await start_browser()
              await update_all_data(scrape_gold=do_scrape_gold, scrape_shops=do_scrape_shops)
         else:
+             # Hibernate
+             await stop_browser()
              if tick_counter % 60 == 0:
-                print(f"💤 Market Closed ({status_msg}) | Shop Closed ({shop_status_msg}) - Idle...")
+                print(f"💤 Market Closed ({GLOBAL_CACHE['market_status']}) - RAM Saved!")
         
         tick_counter += 1
         await asyncio.sleep(60)
@@ -286,32 +326,19 @@ async def run_scheduler():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global playwright_instance, browser_instance
-    print("🚀 Hybrid System Starting...")
+    print("🚀 Hybrid System Starting (with Hibernate Mode)...")
     
-    playwright_instance = await async_playwright().start()
-    browser_instance = await playwright_instance.chromium.launch(
-        headless=True, 
-        args=[
-            '--no-sandbox', 
-            '--disable-setuid-sandbox', 
-            '--disable-dev-shm-usage',
-            '--disable-gpu',
-            '--disable-extensions',
-            '--no-zygote'
-        ]
-    )
-
-    # รันครั้งแรกทันที
-    await update_all_data()
+    # รันครั้งแรกทันที (Wake up -> Scrape -> Scheduler will handle rest)
+    await start_browser()
+    await update_all_data(scrape_gold=True, scrape_shops=True)
     
-    # รัน Scheduler (ต้องมีฟังก์ชัน run_scheduler ด้านบนก่อนเรียกใช้)
+    # รัน Scheduler
     asyncio.create_task(run_scheduler())
     
     yield
     
     print("🛑 System Stopping...")
-    if browser_instance: await browser_instance.close()
-    if playwright_instance: await playwright_instance.stop()
+    await stop_browser()
 
 app = FastAPI(lifespan=lifespan)
 
