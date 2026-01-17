@@ -300,10 +300,10 @@ async def run_scheduler():
         GLOBAL_CACHE["market_status"] = f"{status_msg} | {shop_status_msg}"
         
         # Logic: 
-        # 1. Gold Traders: ทำงานเฉพาะตอนตลาดเปิด
-        # 2. Shops: ทำงานตลอด ยกเว้นช่วงปิดสุดสัปดาห์
+        # 1. Gold Traders: ทำงานเฉพาะตลาดเปิด + ทุก 2 นาที (tick % 2 == 0) -> เพื่อประหยัดค่าใช้จ่าย
+        # 2. Shops: ทำงานตลอด (ยกเว้นปิดสุดสัปดาห์) + ทุก 5 นาที (tick % 5 == 0)
         
-        do_scrape_gold = is_open
+        do_scrape_gold = is_open and (tick_counter % 2 == 0)
         do_scrape_shops = is_shops_active and (tick_counter % 5 == 0)
 
         # Optimization: Hibernate (Auto-Wake / Auto-Sleep)
