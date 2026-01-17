@@ -270,10 +270,11 @@ app = FastAPI(lifespan=lifespan)
 def read_root(response: Response):
     response.headers["Cache-Control"] = "public, max-age=10, s-maxage=10"
     return {
-        "message": "Thai Gold Price API (Hybrid Auto-Switch)",
-        "source_used": GLOBAL_CACHE["source_type"],
+        "message": "👋 Welcome to Thai Gold Price API",
+        "docs_url": "/docs",
         "market_status": GLOBAL_CACHE["market_status"],
-        "last_updated": GLOBAL_CACHE["last_updated"]
+        "last_updated": GLOBAL_CACHE["last_updated"],
+        "source_used": GLOBAL_CACHE["source_type"]
     }
 
 @app.get("/api/latest")
