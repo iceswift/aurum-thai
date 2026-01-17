@@ -12,10 +12,13 @@
 
 ## 🚀 Features
 
--   **⚡ Hybrid Scraping Engine**: Automatically switches between **New Website** and **Classic Website** sources if one fails.
--   **🛡️ Sticky Session**: "Locks" onto a working source to maximize stability and speed.
+-   **⚡ Hybrid Scheduler (Smart Logic)**:
+    -   **Association Price (Gold Traders)**: Updates every **1 minute** (Only during market hours 09:00 - 17:45).
+    -   **Shop Prices (5 Major Shops)**: Updates every **5 minutes** (Runs **24/7** continuously).
+-   **🛡️ Performance Tuned**: 
+    -   Uses **Chromium Headless** with optimized flags (`--disable-gpu`, `--no-zygote`) to minimize memory usage.
+    -   **Resource Blocker**: Automatically blocks Images, Fonts, and CSS to prevent crashes and speed up loading.
 -   **🚄 Parallel Execution**: Scrapes 5 major gold shops **simultaneously** using Async/Await & Playwright.
--   **🔄 Auto Scheduler**: Updates data automatically every 60 seconds.
 -   **💾 Centralized Cache**: Serves data instantly from memory (Zero Latency for clients).
 -   **🐳 Docker Ready**: Deploy anywhere with a single command.
 
@@ -37,7 +40,7 @@ We track 5 major Thai gold traders in real-time:
 
 -   **Core**: Python 3.11+
 -   **API Framework**: FastAPI (High performance)
--   **Browser Automation**: Playwright (Async)
+-   **Browser Automation**: Playwright (Async Chromium)
 -   **Server**: Uvicorn (ASGI)
 
 ---
@@ -50,7 +53,7 @@ Returns API status, source used, and last update time.
 
 ### 2. Latest Gold Bar Price
 `GET /api/latest`
-Get the most recent Gold Bar price (96.5%).
+Get the most recent Gold Bar price (96.5%) from Gold Traders Association.
 
 ### 3. All Gold Shops Data (✨ New)
 `GET /api/shops`
@@ -99,8 +102,8 @@ python main.py
 
 ```
 📦 aurum-thai
- ┣ 📜 Dockerfile.txt       # Deployment Config
- ┣ 📜 main.py              # API Server & Scheduler Logic
+ ┣ 📜 Dockerfile           # Deployment Config (Railway Ready)
+ ┣ 📜 main.py              # API Server & Hybrid Scheduler Logic
  ┣ 📜 shop.py              # Async Scraping Modules (The Core)
  ┣ 📜 requirements.txt     # Python Dependencies
  ┗ 📜 README.md            # This file
@@ -108,12 +111,12 @@ python main.py
 
 ---
 
-## ⚠️ Notes
+## ⚠️ System Architecture Notes
 
+-   **Memory Optimization**: The system uses `context.close()` aggressively to prevent memory leaks. Browser contexts are destroyed after every scraping cycle.
 -   **Ausiris Scraping**: The Ausiris website requires a 15-second load time. Our async engine handles this in the background, so it **does not block** other shops or the API.
 -   **Timezone**: All times are reported in **Asia/Bangkok (UTC+7)**.
 
 ---
 
 Made with ❤️ by **Suwiwat Sinsomboon**
-
