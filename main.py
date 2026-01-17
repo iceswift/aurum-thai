@@ -40,6 +40,29 @@ def is_market_open():
         return True, "Open"
     return False, "Closed (Outside Hours)"
 
+def is_shop_open():
+    """
+    เช็คเวลาทำการร้านค้า (24/7 ยกเว้นปิดเสาร์ 9:30 - จันทร์ 00:00)
+    - จันทร์ (0) - ศุกร์ (4): เปิด 24 ชม.
+    - เสาร์ (5): ปิดหลัง 09:30
+    - อาทิตย์ (6): ปิดทั้งวัน
+    """
+    now = get_thai_time()
+    weekday = now.weekday()
+    current_time = now.time()
+
+    # วันอาทิตย์ (6): ปิดตลอดวัน
+    if weekday == 6:
+        return False, "Closed (Sunday)"
+
+    # วันเสาร์ (5): ปิดหลัง 09:30
+    if weekday == 5:
+        if current_time >= datetime.time(9, 30):
+            return False, "Closed (Saturday > 09:30)"
+
+    # วันอื่นๆ (จันทร์-ศุกร์): เปิดตลอด
+    return True, "Open (24h)"
+
 # ==============================================================================
 # 3. SCRAPING LOGIC (แยกฟังก์ชันตามเวอร์ชันเว็บ)
 # ==============================================================================
@@ -222,18 +245,20 @@ async def run_scheduler():
         GLOBAL_CACHE["market_status"] = status_msg
         
         # Logic: 
-        # 1. Gold Traders: ทำงานเฉพาะตอนตลาดเปิด (is_open=True)
-        # 2. Shops: ทำงานตลอด 24 ชม. ทุกๆ 5 นาที
+        # 1. Gold Traders: ทำงานเฉพาะตอนตลาดเปิด (is_market_open=True)
+        # 2. Shops: ทำงานตลอด ยกเว้นช่วงปิดสุดสัปดาห์ (is_shop_open=True) + run ทุก 5 นาที
+        
+        is_shops_active, shop_status_msg = is_shop_open()
         
         do_scrape_gold = is_open
-        do_scrape_shops = (tick_counter % 5 == 0)
+        do_scrape_shops = is_shops_active and (tick_counter % 5 == 0)
 
         # Optimization: เรียกฟังก์ชันเดียว จัดการทั้งคู่ (ไม่ต้องแยก if)
         if do_scrape_gold or do_scrape_shops:
              await update_all_data(scrape_gold=do_scrape_gold, scrape_shops=do_scrape_shops)
         else:
              if tick_counter % 60 == 0:
-                print(f"💤 Market Closed ({status_msg}) - Idle...")
+                print(f"💤 Market Closed ({status_msg}) | Shop Closed ({shop_status_msg}) - Idle...")
         
         tick_counter += 1
         await asyncio.sleep(60)
