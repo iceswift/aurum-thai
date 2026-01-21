@@ -1,5 +1,5 @@
 # ใช้ Base Image ที่มี Playwright และ Browser มาให้ครบชุด (จะได้ไม่ต้องลงเอง)
-FROM mcr.microsoft.com/playwright/python:v1.57.0-jammy
+FROM mcr.microsoft.com/playwright/python:v1.57.0-noble
 
 # ตั้งค่าโฟลเดอร์ทำงานใน Server
 WORKDIR /app
@@ -8,7 +8,9 @@ WORKDIR /app
 COPY . /app
 
 # สั่งลง Library ตามที่เขียนไว้ใน requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
+# สั่งลง Library ตามที่เขียนไว้ใน requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt && \
+    rm -rf /root/.cache/pip
 
 # เปิด Port 8000
 EXPOSE 8000
