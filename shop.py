@@ -26,19 +26,20 @@ async def scrape_aurora(context: BrowserContext) -> Dict[str, Any]:
         await page.goto(url, timeout=TIMEOUT_MS, wait_until="domcontentloaded")
         await asyncio.sleep(5)
         
-        # Safe Check: ดูว่ามีตารางไหม
-        if await page.locator("table.sortable1 tbody tr").count() > 0:
+        # Safe Check: ดูว่ามีตารางไหม (ใช้ selector กลางๆ เพราะ class sortable1 หายไป)
+        if await page.locator("table tbody tr").count() > 0:
             # ดึงแถวแรกสุด (ข้อมูลล่าสุด)
-            latest_row = page.locator("table.sortable1 tbody tr").first
+            latest_row = page.locator("table tbody tr").first
             
             tds = latest_row.locator("td")
             
-            # td[1] = ทองแท่ง รับซื้อ
-            # td[2] = ทองแท่ง ขายออก
-            # td[3] = ทองรูปพรรณ รับซื้อ (colspan=2)
-            bullion_buy = await tds.nth(1).inner_text()
-            bullion_sell = await tds.nth(2).inner_text()
-            ornament_buy = await tds.nth(3).inner_text()
+            # Index ใหม่จาก User:
+            # td[2] = ทองแท่ง รับซื้อ (71,450.00)
+            # td[3] = ทองแท่ง ขายออก (71,550.00) 
+            # td[4] = ทองรูปพรรณ รับซื้อ (69,306.00)
+            bullion_buy = await tds.nth(2).inner_text()
+            bullion_sell = await tds.nth(3).inner_text()
+            ornament_buy = await tds.nth(4).inner_text()
             
             result["data"] = {
                 "gold_bar_965": {
