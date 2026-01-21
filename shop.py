@@ -22,9 +22,15 @@ async def scrape_aurora(context: BrowserContext) -> Dict[str, Any]:
     await block_heavy_resources(page) # Block images/fonts
     
     try:
-        # ปรับจูน: รอแค่ DOM Ready (แก้ Timeout)
-        await page.goto(url, timeout=TIMEOUT_MS, wait_until="domcontentloaded")
-        await asyncio.sleep(5)
+        # ปรับจูน V2: เปลี่ยนเป็น 'commit' (แค่เชื่อมต่อได้ก็พอ) 
+        # แล้วใช้การรอ Element แทน เพื่อแก้ปัญหาโหลด script นานจน Timeout
+        await page.goto(url, timeout=TIMEOUT_MS, wait_until="commit")
+        
+        # รอให้ Element ตารางโผล่มาจริงๆ (Timeout 60s)
+        try:
+             await page.wait_for_selector("table tbody tr", state="attached", timeout=TIMEOUT_MS)
+        except Exception:
+             print("   ⚠️ Aurora Wait Selector Timeout - Trying to scrape anyway...")
         
         # Safe Check: ดูว่ามีตารางไหม
         # 1. ปรับ Selector: เนื่องจาก class 'sortable1' หายไป ให้ใช้ table tbody tr แทน
