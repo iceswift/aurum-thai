@@ -26,17 +26,21 @@ async def scrape_aurora(context: BrowserContext) -> Dict[str, Any]:
         await page.goto(url, timeout=TIMEOUT_MS, wait_until="domcontentloaded")
         await asyncio.sleep(5)
         
-        # Safe Check: ดูว่ามีตารางไหม (ใช้ selector กลางๆ เพราะ class sortable1 หายไป)
+        # Safe Check: ดูว่ามีตารางไหม
+        # 1. ปรับ Selector: เนื่องจาก class 'sortable1' หายไป ให้ใช้ table tbody tr แทน
         if await page.locator("table tbody tr").count() > 0:
             # ดึงแถวแรกสุด (ข้อมูลล่าสุด)
             latest_row = page.locator("table tbody tr").first
             
             tds = latest_row.locator("td")
             
-            # Index ใหม่จาก User:
-            # td[2] = ทองแท่ง รับซื้อ (71,450.00)
-            # td[3] = ทองแท่ง ขายออก (71,550.00) 
-            # td[4] = ทองรูปพรรณ รับซื้อ (69,306.00)
+            # 2. ปรับลำดับ Index ใหม่ (Update 2025):
+            # td[0] = เวลา
+            # td[1] = ครั้งที่ (ข้าม)
+            # td[2] = ทองแท่ง รับซื้อ
+            # td[3] = ทองแท่ง ขายออก
+            # td[4] = ทองรูปพรรณ รับซื้อ
+            
             bullion_buy = await tds.nth(2).inner_text()
             bullion_sell = await tds.nth(3).inner_text()
             ornament_buy = await tds.nth(4).inner_text()
