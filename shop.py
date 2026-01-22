@@ -17,7 +17,10 @@ async def scrape_aurora(context: BrowserContext) -> Dict[str, Any]:
     print(f"   >> Starting Aurora")
     
     # --- UNPLUGGED: Manual Stop by User ---
-    return {"name": "Aurora", "data": {}, "error": "Disabled (Manual Stop)"}
+    # Root Cause: net::ERR_CONNECTION_TIMED_OUT detected.
+    # Diagnosis: The server is blocking the connection at the TCP/Network level (Firewall/IP Block), 
+    # likely due to the hosting IP being blacklisted. Not a Cloudflare JS challenge.
+    return {"name": "Aurora", "data": {}, "error": "Disabled (Network Block/Timeout)"}
     
     result = {"name": "Aurora", "data": {}, "error": None}
     page = await context.new_page()
