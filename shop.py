@@ -276,16 +276,25 @@ async def scrape_ausiris(context: BrowserContext) -> Dict[str, Any]:
     return result
 
 async def scrape_all_shops(context: BrowserContext) -> List[Dict[str, Any]]:
-    print("\n>> Starting Parallel Scraping for 5 Shops...")
+    print("\n>> Starting Parallel Scraping for 5 Shops (Limited Concurrency: 2)...")
     start_time = asyncio.get_event_loop().time()
+
+    # Semaphore: จำกัดให้รันพร้อมกันสูงสุดแค่ 2 ร้าน (เพื่อประหยัด RAM)
+    sem = asyncio.Semaphore(2)
+
+    async def protected_scrape(func):
+        async with sem:
+             return await func(context)
     
-    results = await asyncio.gather(
-        scrape_aurora(context),
-        scrape_mts_gold(context),
-        scrape_hua_seng_heng(context),
-        scrape_chin_hua_heng(context),
-        scrape_ausiris(context)
-    )
+    tasks = [
+        protected_scrape(scrape_aurora),
+        protected_scrape(scrape_mts_gold),
+        protected_scrape(scrape_hua_seng_heng),
+        protected_scrape(scrape_chin_hua_heng),
+        protected_scrape(scrape_ausiris)
+    ]
+
+    results = await asyncio.gather(*tasks)
     
     end_time = asyncio.get_event_loop().time()
     duration = end_time - start_time
