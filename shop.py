@@ -12,76 +12,57 @@ async def block_heavy_resources(page: Page):
         else route.continue_()
     )
 
-from urllib.parse import quote
-
 async def scrape_aurora(context: BrowserContext) -> Dict[str, Any]:
-    raw_url = "https://www.aurora.co.th/price/gold_pricelist/ราคาทองวันนี้"
-    safe_url = "https://www.aurora.co.th/price/gold_pricelist/" + quote("ราคาทองวันนี้")
-
-    print(f"   >> Starting Aurora (Solo Mode)")
+    url = "https://www.aurora.co.th/price/gold_pricelist/ราคาทองวันนี้"
+    print(f"   >> Starting Aurora")
+    
+    # --- UNPLUGGED: Manual Stop by User ---
+    return {"name": "Aurora", "data": {}, "error": "Disabled (Manual Stop)"}
+    
     result = {"name": "Aurora", "data": {}, "error": None}
-
     page = await context.new_page()
 
-    # ❌ ห้าม block CSS / font สำหรับ Aurora
+    # 1) ผ่อน block เหลือแค่ image/media
     await page.route("**/*", lambda route: route.abort()
         if route.request.resource_type in ["image", "media"]
         else route.continue_()
     )
 
     try:
-        last_error = None
+        # 2) ใช้ domcontentloaded แบบ sync
+        await page.goto(url, timeout=90000, wait_until="domcontentloaded")
 
-        for attempt in range(1, 4):
-            try:
-                print(f"   🔁 Aurora attempt {attempt}/3")
+        # 3) กัน Cloudflare / JS lag
+        await asyncio.sleep(3)
 
-                try:
-                    await page.goto(raw_url, timeout=90000, wait_until="domcontentloaded")
-                except:
-                    print("   ⚠️ Raw URL failed, retry encoded URL...")
-                    await page.goto(safe_url, timeout=90000, wait_until="domcontentloaded")
+        # 4) soft wait selector
+        try:
+            await page.wait_for_selector("table tbody tr", timeout=15000)
+        except:
+            print("   ⚠️ Aurora table slow, continue anyway")
 
-                # กัน Cloudflare JS lag
-                await asyncio.sleep(4)
+        if await page.locator("table tbody tr").count() > 0:
+            row = page.locator("table tbody tr").first
+            tds = row.locator("td")
 
-                # soft wait table
-                try:
-                    await page.wait_for_selector("table tbody tr", timeout=20000)
-                except:
-                    print("   ⚠️ Aurora table slow, continue anyway")
+            time_update = (await tds.nth(0).inner_text()).strip()
+            bar_buy = (await tds.nth(2).inner_text()).strip()
+            bar_sell = (await tds.nth(3).inner_text()).strip()
+            ornament_buy = (await tds.nth(4).inner_text()).strip()
 
-                if await page.locator("table tbody tr").count() == 0:
-                    raise Exception("Aurora table not found")
+            result["data"] = {
+                "time": time_update,
+                "gold_bar_965": {"buy": bar_buy, "sell": bar_sell},
+                "gold_ornament_965": {"buy": ornament_buy}
+            }
+        else:
+            result["error"] = "Table not found"
 
-                row = page.locator("table tbody tr").first
-                tds = row.locator("td")
+        print(f"   [OK] Aurora Finished")
 
-                time_update = (await tds.nth(0).inner_text()).strip()
-                bar_buy = (await tds.nth(2).inner_text()).strip()
-                bar_sell = (await tds.nth(3).inner_text()).strip()
-                ornament_buy = (await tds.nth(4).inner_text()).strip()
-
-                result["data"] = {
-                    "time": time_update,
-                    "gold_bar_965": {"buy": bar_buy, "sell": bar_sell},
-                    "gold_ornament_965": {"buy": ornament_buy}
-                }
-
-                print(f"   [OK] Aurora Finished")
-                return result
-
-            except Exception as e:
-                last_error = str(e)
-                print(f"   ⚠️ Aurora attempt {attempt} failed: {e}")
-
-                # backoff หนักขึ้นเรื่อย ๆ
-                await asyncio.sleep(10 * attempt)
-
-        # ถ้าหมด 3 รอบแล้วยังไม่รอด
-        result["error"] = last_error or "Aurora failed after retries"
-        print(f"   [X] Aurora Failed after 3 attempts")
-
+    except Exception as e:
+        print(f"   [X] Aurora Error: {e}")
+        result["error"] = str(e)
     finally:
         await page.close()
 
