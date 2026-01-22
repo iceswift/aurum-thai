@@ -13,63 +13,68 @@ async def block_heavy_resources(page: Page):
     )
 
 async def scrape_aurora(context: BrowserContext) -> Dict[str, Any]:
-    """ร้านที่ 1: Aurora"""
+    """ร้านที่ 1: Aurora (Update Structure 2025)"""
     url = "https://www.aurora.co.th/price/gold_pricelist/ราคาทองวันนี้"
     print(f"   >> Starting Aurora")
     
+    # กำหนด Timeout ตรงนี้ หรือดึงมาจาก Global Config ของคุณ
+    TIMEOUT_MS = 30000 
+    
     result = {"name": "Aurora", "data": {}, "error": None}
     page = await context.new_page()
-    # await block_heavy_resources(page) # Aurora might need resources to render table correctly
     
     try:
-        # ปรับจูน V2: เปลี่ยนเป็น 'commit' (แค่เชื่อมต่อได้ก็พอ) 
-        # แล้วใช้การรอ Element แทน เพื่อแก้ปัญหาโหลด script นานจน Timeout
+        # ใช้ commit เพื่อความเร็ว (ไม่รอโหลดรูป/script จนครบ)
         await page.goto(url, timeout=TIMEOUT_MS, wait_until="commit")
         
-        # รอให้ Element ตารางโผล่มาจริงๆ (Timeout 60s)
+        # รอให้ Element ตารางโผล่มาจริงๆ (ปรับ Selector ให้เจาะจงที่ tbody)
         try:
-             await page.wait_for_selector("table tbody tr", state="attached", timeout=TIMEOUT_MS)
+            await page.wait_for_selector("table tbody tr", state="attached", timeout=15000)
         except Exception:
-             print("   ⚠️ Aurora Wait Selector Timeout - Trying to scrape anyway...")
+            print("   ⚠️ Aurora Wait Selector Timeout - Trying to scrape anyway...")
         
-        # Safe Check: ดูว่ามีตารางไหม
-        # 1. ปรับ Selector: เนื่องจาก class 'sortable1' หายไป ให้ใช้ table tbody tr แทน
-        if await page.locator("table tbody tr").count() > 0:
+        # ดึงแถวข้อมูล
+        rows = page.locator("table tbody tr")
+        
+        # ตรวจสอบว่ามีข้อมูลแถวอยู่จริงหรือไม่
+        if await rows.count() > 0:
             # ดึงแถวแรกสุด (ข้อมูลล่าสุด)
-            latest_row = page.locator("table tbody tr").first
-            
+            latest_row = rows.first
             tds = latest_row.locator("td")
             
-            # 2. ปรับลำดับ Index ใหม่ (Update 2025):
-            # td[0] = เวลา
-            # td[1] = ครั้งที่ (ข้าม)
-            # td[2] = ทองแท่ง รับซื้อ
-            # td[3] = ทองแท่ง ขายออก
-            # td[4] = ทองรูปพรรณ รับซื้อ
-            
-            bullion_buy = await tds.nth(2).inner_text()
-            bullion_sell = await tds.nth(3).inner_text()
-            ornament_buy = await tds.nth(4).inner_text()
-            
-            result["data"] = {
-                "gold_bar_965": {
-                    "buy": bullion_buy.strip(),
-                    "sell": bullion_sell.strip()
-                },
-                "gold_ornament_965": {
-                    "buy": ornament_buy.strip(),
-                    "sell": "ไม่ระบุในตาราง"
+            # ตรวจสอบว่ามีจำนวน Column มากพอไหม (กัน Error IndexOutOfRange)
+            if await tds.count() >= 5:
+                # Mapping Index ใหม่ (2025):
+                # td[0]=เวลา, td[1]=ครั้งที่, td[2]=แท่งรับซื้อ, td[3]=แท่งขายออก, td[4]=รูปพรรณรับซื้อ
+                
+                bullion_buy = await tds.nth(2).inner_text()
+                bullion_sell = await tds.nth(3).inner_text()
+                ornament_buy = await tds.nth(4).inner_text()
+                
+                result["data"] = {
+                    "gold_bar_965": {
+                        "buy": bullion_buy.strip(),
+                        "sell": bullion_sell.strip()
+                    },
+                    "gold_ornament_965": {
+                        "buy": ornament_buy.strip(),
+                        "sell": "ไม่ระบุ" # Aurora ปกติไม่โชว์ขายออกรูปพรรณในตาราง
+                    }
                 }
-            }
+            else:
+                 # กรณีโครงสร้างเปลี่ยนจน Column ไม่ครบ
+                 result["error"] = "Table columns mismatch"
+                 print("   ⚠️ Aurora Columns count mismatch")
         else:
-             print("   ⚠️ Aurora Table not found")
-             result["error"] = "Table not found"
+             print("   ⚠️ Aurora Table row not found")
+             result["error"] = "Table row not found"
              
         print(f"   [OK] Aurora Finished")
         
     except Exception as e:
         print(f"   [X] Aurora Error: {e}")
         result["error"] = str(e)
+        
     finally:
         await page.close()
         
