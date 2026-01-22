@@ -12,20 +12,18 @@ async def block_heavy_resources(page: Page):
         else route.continue_()
     )
 
+from playwright_stealth import stealth_async
+
 async def scrape_aurora(context: BrowserContext) -> Dict[str, Any]:
     url = "https://www.aurora.co.th/price/gold_pricelist/ราคาทองวันนี้"
-    print(f"   >> Starting Aurora (Optimized: User-Agent + Resource Block)")
+    print(f"   >> Starting Aurora (Level 1: Stealth Mode)")
 
     result = {"name": "Aurora", "data": {}, "error": None}
     page = await context.new_page()
     
-    # 1. Fake User-Agent (Lightweight Bypass)
-    await page.set_extra_http_headers({
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    })
-
-    # 2. Block Heavy Resources (prevent Server Crash/OOM)
-    await block_heavy_resources(page)
+    # LEVEL 1: Apply Stealth (Hide Bot Fingerprint)
+    # Note: ไม่ Block Resource แล้ว เพื่อให้เนียนที่สุดเหมือนคนจริง
+    await stealth_async(page)
 
 
     try:
