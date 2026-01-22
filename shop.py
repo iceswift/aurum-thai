@@ -13,50 +13,51 @@ async def block_heavy_resources(page: Page):
     )
 
 async def scrape_aurora(context: BrowserContext) -> Dict[str, Any]:
-    """ร้านที่ 1: Aurora (Classic Version - Stable)"""
+    """ร้านที่ 1: Aurora"""
     url = "https://www.aurora.co.th/price/gold_pricelist/ราคาทองวันนี้"
-    print(f"   >> Starting Aurora ({url})")
+    print(f"   >> Starting Aurora")
     
-    # ใช้ Structure เดิมเพื่อให้ main.py ไม่พัง (keys: name, data, error)
     result = {"name": "Aurora", "data": {}, "error": None}
-    
-    # Create page first!
     page = await context.new_page()
-
+    # Note: Removed block_heavy_resources(page) as per user request to revert
+    
     try:
-        await page.goto(url, timeout=TIMEOUT_MS)
-        await asyncio.sleep(2) 
+        # Revert: Switch back to domcontentloaded with 60s timeout
+        await page.goto(url, timeout=60000, wait_until="domcontentloaded")
+        await asyncio.sleep(5)
         
-        # 1. รอให้ตารางโหลดขึ้นมา
-        await page.wait_for_selector("div[style*='overflow-x: auto'] table tbody tr", timeout=TIMEOUT_MS)
-        
-        # 2. ดึงแถวแรกสุด (ข้อมูลล่าสุด)
-        latest_row = page.locator("div[style*='overflow-x: auto'] table tbody tr").first
-        
-        # 3. ดึงข้อมูลแต่ละคอลัมน์ (td)
-        tds = latest_row.locator("td")
-        
-        bullion_buy = (await tds.nth(2).inner_text()).strip()
-        bullion_sell = (await tds.nth(3).inner_text()).strip()
-        ornament_buy = (await tds.nth(4).inner_text()).strip()
-        
-        # คืนค่ากลับใส่ result["data"] (ไม่ใช่ "prices")
-        result["data"] = {
-            "gold_bar_965": {
-                "buy": bullion_buy,
-                "sell": bullion_sell
-            },
-            "gold_ornament_965": {
-                "buy": ornament_buy,
-                "sell": "ไม่ระบุในตาราง"
+        # Safe Check: ดูว่ามีตารางไหม
+        # ใช้ Selector ใหม่ (table tbody tr) ที่เพิ่งแก้ไป (แต่ Logic การรอเป็นแบบเดิม)
+        if await page.locator("table tbody tr").count() > 0:
+            # ดึงแถวแรกสุด (ข้อมูลล่าสุด)
+            latest_row = page.locator("table tbody tr").first
+            
+            tds = latest_row.locator("td")
+            
+            # 2. ปรับลำดับ Index ใหม่:
+            bullion_buy = await tds.nth(2).inner_text()
+            bullion_sell = await tds.nth(3).inner_text()
+            ornament_buy = await tds.nth(4).inner_text()
+            
+            result["data"] = {
+                "gold_bar_965": {
+                    "buy": bullion_buy.strip(),
+                    "sell": bullion_sell.strip()
+                },
+                "gold_ornament_965": {
+                    "buy": ornament_buy.strip(),
+                    "sell": "ไม่ระบุในตาราง"
+                }
             }
-        }
+        else:
+             print("   ⚠️ Aurora Table not found")
+             result["error"] = "Table not found"
+             
         print(f"   [OK] Aurora Finished")
-
+        
     except Exception as e:
         print(f"   [X] Aurora Error: {e}")
-        result["error"] = f"Aurora Error (New Structure): {str(e)}"
-    
+        result["error"] = str(e)
     finally:
         await page.close()
         
@@ -139,11 +140,7 @@ async def scrape_hua_seng_heng(context: BrowserContext) -> Dict[str, Any]:
             # 2. ทองรูปพรรณ
             if await page.locator("#bidjewelry").count() > 0:
                 buy_jewel = await page.locator("#bidjewelry").first.text_content()
-                # Check optional sell price
-                sell_jewel = "N/A"
-                if await page.locator("#askjewelry").count() > 0:
-                     sell_jewel = await page.locator("#askjewelry").first.text_content()
-                
+                sell_jewel = await page.locator("#askjewelry").first.text_content()
                 result["data"]["ornament_965"] = {
                     "buy": buy_jewel.strip(),
                     "sell": sell_jewel.strip()
