@@ -15,7 +15,8 @@ async def block_heavy_resources(page: Page):
 async def scrape_aurora(context: BrowserContext) -> Dict[str, Any]:
     """ร้านที่ 1: Aurora (Classic Version - Stable)"""
     url = "https://www.aurora.co.th/price/gold_pricelist/ราคาทองวันนี้"
-    data = {"name": "Aurora", "url": url, "error": None, "prices": {}}
+    # ใช้ Structure เดิมเพื่อให้ main.py ไม่พัง (keys: name, data, error)
+    result = {"name": "Aurora", "data": {}, "error": None}
     
     # Create page first!
     page = await context.new_page()
@@ -44,7 +45,8 @@ async def scrape_aurora(context: BrowserContext) -> Dict[str, Any]:
         bullion_sell = (await tds.nth(3).inner_text()).strip()
         ornament_buy = (await tds.nth(4).inner_text()).strip()
         
-        data["prices"] = {
+        # คืนค่ากลับใส่ result["data"] (ไม่ใช่ "prices")
+        result["data"] = {
             "gold_bar_965": {
                 "buy": bullion_buy,
                 "sell": bullion_sell
@@ -56,12 +58,12 @@ async def scrape_aurora(context: BrowserContext) -> Dict[str, Any]:
         }
 
     except Exception as e:
-        data["error"] = f"Aurora Error (New Structure): {str(e)}"
+        result["error"] = f"Aurora Error (New Structure): {str(e)}"
     
     finally:
         await page.close()
         
-    return data
+    return result
 
 async def scrape_mts_gold(context: BrowserContext) -> Dict[str, Any]:
     """ร้านที่ 2: MTS Gold"""
