@@ -13,12 +13,12 @@ async def block_heavy_resources(page: Page):
     )
 
 async def scrape_aurora(context: BrowserContext) -> Dict[str, Any]:
-    """ร้านที่ 1: Aurora (Optimized for Speed & Timeout Fix)"""
+    """ร้านที่ 1: Aurora (Classic Version - Stable)"""
     url = "https://www.aurora.co.th/price/gold_pricelist/ราคาทองวันนี้"
     print(f"   >> Starting Aurora")
     
-    # Timeout 30 วินาที
-    TIMEOUT_MS = 30000 
+    # เพิ่ม Timeout เป็น 60 วินาที (เผื่อเครื่องหน่วงตอนรันหลายจอ)
+    TIMEOUT_MS = 60000 
     
     result = {"name": "Aurora", "data": {}, "error": None}
     
@@ -26,36 +26,27 @@ async def scrape_aurora(context: BrowserContext) -> Dict[str, Any]:
     page = await context.new_page()
     
     try:
-        # 1. เทคนิคบล็อกของหนัก (รูปภาพ/Font/CSS) เพื่อให้โหลดไวขึ้น
-        await page.route("**/*", lambda route: route.abort() 
-            if route.request.resource_type in ["image", "media", "font", "stylesheet"] 
-            else route.continue_()
-        )
-
-        # 2. ปรับ wait_until เป็น 'commit' (แค่เชื่อมต่อได้ก็ไปต่อเลย ไม่ต้องรอโหลดหน้าเสร็จ)
-        # วิธีนี้แก้ปัญหา Timeout ได้ดีที่สุดสำหรับเว็บที่โหลดช้า
-        await page.goto(url, timeout=TIMEOUT_MS, wait_until="commit")
+        # 1. ใช้ wait_until='domcontentloaded' (มาตรฐาน) แทน 'commit'
+        # มันจะรอจนกว่าโครงสร้างเว็บโหลดเสร็จจริงๆ เหมือนที่โค้ดแบบ Sync ทำ
+        await page.goto(url, timeout=TIMEOUT_MS, wait_until="domcontentloaded")
         
-        # 3. รอเฉพาะตารางที่เราต้องการ (ไม่ต้องรอทั้งหน้า)
-        # ใช้ state='domcontentloaded' เฉพาะ element นี้
+        # 2. รอ Selector แบบ Default (state='visible')
+        # ไม่บังคับ state='attached' แล้ว เพราะบางทีของมาแล้วแต่มองไม่เห็น
         try:
-            await page.wait_for_selector("table tbody tr", state="attached", timeout=15000)
+            await page.wait_for_selector("table tbody tr", timeout=30000)
         except Exception:
-            print("   ⚠️ Aurora Wait Selector Timeout (Non-fatal if data exists)")
+            print("   ⚠️ Aurora Wait Selector Timeout - Trying to scrape anyway...")
         
-        # ดึงแถวข้อมูล
+        # 3. ดึงข้อมูล (Logic เดิมที่ถูกต้องแล้ว)
         rows = page.locator("table tbody tr")
         
         if await rows.count() > 0:
             latest_row = rows.first
             tds = latest_row.locator("td")
             
-            # เช็คจำนวนคอลัมน์ (ตามโครงสร้างใหม่ที่คุณให้มามี 5-6 คอลัมน์)
+            # ตรวจสอบจำนวน Column (ป้องกัน Index Error)
             if await tds.count() >= 5:
-                # Mapping Index ใหม่ (2025):
-                # td[0]=เวลา, td[1]=ครั้งที่, td[2]=แท่งรับซื้อ, td[3]=แท่งขายออก, td[4]=รูปพรรณรับซื้อ
-                
-                # ใช้ inner_text() และ strip() เพื่อความสะอาดของข้อมูล
+                # Mapping Index: 0=เวลา, 2=แท่งรับซื้อ, 3=แท่งขายออก, 4=รูปพรรณรับซื้อ
                 bullion_buy = await tds.nth(2).inner_text()
                 bullion_sell = await tds.nth(3).inner_text()
                 ornament_buy = await tds.nth(4).inner_text()
@@ -74,9 +65,6 @@ async def scrape_aurora(context: BrowserContext) -> Dict[str, Any]:
                  result["error"] = "Table columns mismatch"
                  print(f"   ⚠️ Aurora Columns count mismatch")
         else:
-             # ถ้าไม่เจอแถว ลองปริ้น HTML ดู debug ได้ถ้าจำเป็น
-             # content = await page.content()
-             # print(content[:500]) 
              print("   ⚠️ Aurora Table row not found")
              result["error"] = "Table row not found"
              
@@ -87,7 +75,7 @@ async def scrape_aurora(context: BrowserContext) -> Dict[str, Any]:
         result["error"] = str(e)
         
     finally:
-        # สำคัญ: ต้องปิด page เสมอ เพื่อคืน RAM
+        # ปิด Page เสมอเพื่อคืนแรม (สำคัญมากสำหรับเคส Target crashed)
         await page.close()
         
     return result
