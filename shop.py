@@ -12,18 +12,19 @@ async def block_heavy_resources(page: Page):
         else route.continue_()
     )
 
+from playwright_stealth import stealth_async
+
 async def scrape_aurora(context: BrowserContext) -> Dict[str, Any]:
     url = "https://www.aurora.co.th/price/gold_pricelist/ราคาทองวันนี้"
-    print(f"   >> Starting Aurora")
+    print(f"   >> Starting Aurora (Level 1: Stealth Mode)")
 
     result = {"name": "Aurora", "data": {}, "error": None}
     page = await context.new_page()
+    
+    # LEVEL 1: Apply Stealth (Hide Bot Fingerprint)
+    # Note: ไม่ Block Resource แล้ว เพื่อให้เนียนที่สุดเหมือนคนจริง
+    await stealth_async(page)
 
-    # 1) ผ่อน block เหลือแค่ image/media
-    await page.route("**/*", lambda route: route.abort()
-        if route.request.resource_type in ["image", "media"]
-        else route.continue_()
-    )
 
     try:
         # 2) ใช้ domcontentloaded แบบ sync
