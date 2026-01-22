@@ -15,70 +15,53 @@ async def block_heavy_resources(page: Page):
 async def scrape_aurora(context: BrowserContext) -> Dict[str, Any]:
     """ร้านที่ 1: Aurora (Classic Version - Stable)"""
     url = "https://www.aurora.co.th/price/gold_pricelist/ราคาทองวันนี้"
-    print(f"   >> Starting Aurora")
+    data = {"name": "Aurora", "url": url, "error": None, "prices": {}}
     
-    # เพิ่ม Timeout เป็น 60 วินาที (เผื่อเครื่องหน่วงตอนรันหลายจอ)
-    TIMEOUT_MS = 60000 
-    
-    result = {"name": "Aurora", "data": {}, "error": None}
-    
-    # สร้าง Page ใหม่
+    # Create page first!
     page = await context.new_page()
-    
+
     try:
-        # 1. ใช้ wait_until='domcontentloaded' (มาตรฐาน) แทน 'commit'
-        # มันจะรอจนกว่าโครงสร้างเว็บโหลดเสร็จจริงๆ เหมือนที่โค้ดแบบ Sync ทำ
-        await page.goto(url, timeout=TIMEOUT_MS, wait_until="domcontentloaded")
+        await page.goto(url, timeout=TIMEOUT_MS)
+        await asyncio.sleep(2) 
         
-        # 2. รอ Selector แบบ Default (state='visible')
-        # ไม่บังคับ state='attached' แล้ว เพราะบางทีของมาแล้วแต่มองไม่เห็น
-        try:
-            await page.wait_for_selector("table tbody tr", timeout=30000)
-        except Exception:
-            print("   ⚠️ Aurora Wait Selector Timeout - Trying to scrape anyway...")
+        # 1. รอให้ตารางโหลดขึ้นมา
+        # โครงสร้างใหม่ไม่มี class ชัดเจน ให้ใช้ container div ที่มี style overflow-x: auto
+        # หรือเจาะจง table โดยตรง
+        await page.wait_for_selector("div[style*='overflow-x: auto'] table tbody tr", timeout=TIMEOUT_MS)
         
-        # 3. ดึงข้อมูล (Logic เดิมที่ถูกต้องแล้ว)
-        rows = page.locator("table tbody tr")
+        # 2. ดึงแถวแรกสุด (ข้อมูลล่าสุด)
+        latest_row = page.locator("div[style*='overflow-x: auto'] table tbody tr").first
         
-        if await rows.count() > 0:
-            latest_row = rows.first
-            tds = latest_row.locator("td")
-            
-            # ตรวจสอบจำนวน Column (ป้องกัน Index Error)
-            if await tds.count() >= 5:
-                # Mapping Index: 0=เวลา, 2=แท่งรับซื้อ, 3=แท่งขายออก, 4=รูปพรรณรับซื้อ
-                bullion_buy = await tds.nth(2).inner_text()
-                bullion_sell = await tds.nth(3).inner_text()
-                ornament_buy = await tds.nth(4).inner_text()
-                
-                result["data"] = {
-                    "gold_bar_965": {
-                        "buy": bullion_buy.strip(),
-                        "sell": bullion_sell.strip()
-                    },
-                    "gold_ornament_965": {
-                        "buy": ornament_buy.strip(),
-                        "sell": "ไม่ระบุ"
-                    }
-                }
-            else:
-                 result["error"] = "Table columns mismatch"
-                 print(f"   ⚠️ Aurora Columns count mismatch")
-        else:
-             print("   ⚠️ Aurora Table row not found")
-             result["error"] = "Table row not found"
-             
-        print(f"   [OK] Aurora Finished")
+        # 3. ดึงข้อมูลแต่ละคอลัมน์ (td)
+        # index 0: เวลา
+        # index 1: ครั้งที่
+        # index 2: ทองแท่ง รับซื้อ
+        # index 3: ทองแท่ง ขายออก
+        # index 4: ทองรูปพรรณ รับซื้อ (รับซื้อรูปพรรณออโรร่า)
+        tds = latest_row.locator("td")
         
+        bullion_buy = (await tds.nth(2).inner_text()).strip()
+        bullion_sell = (await tds.nth(3).inner_text()).strip()
+        ornament_buy = (await tds.nth(4).inner_text()).strip()
+        
+        data["prices"] = {
+            "gold_bar_965": {
+                "buy": bullion_buy,
+                "sell": bullion_sell
+            },
+            "gold_ornament_965": {
+                "buy": ornament_buy,
+                "sell": "ไม่ระบุในตาราง" # ในตารางมีแค่ช่องรับซื้อรูปพรรณ
+            }
+        }
+
     except Exception as e:
-        print(f"   [X] Aurora Error: {e}")
-        result["error"] = str(e)
-        
+        data["error"] = f"Aurora Error (New Structure): {str(e)}"
+    
     finally:
-        # ปิด Page เสมอเพื่อคืนแรม (สำคัญมากสำหรับเคส Target crashed)
         await page.close()
         
-    return result
+    return data
 
 async def scrape_mts_gold(context: BrowserContext) -> Dict[str, Any]:
     """ร้านที่ 2: MTS Gold"""
