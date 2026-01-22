@@ -12,55 +12,76 @@ async def block_heavy_resources(page: Page):
         else route.continue_()
     )
 
-from playwright_stealth import stealth_async
+from urllib.parse import quote
 
 async def scrape_aurora(context: BrowserContext) -> Dict[str, Any]:
-    url = "https://www.aurora.co.th/price/gold_pricelist/ราคาทองวันนี้"
-    print(f"   >> Starting Aurora (Level 1: Stealth Mode)")
+    raw_url = "https://www.aurora.co.th/price/gold_pricelist/ราคาทองวันนี้"
+    safe_url = "https://www.aurora.co.th/price/gold_pricelist/" + quote("ราคาทองวันนี้")
 
+    print(f"   >> Starting Aurora (Solo Mode)")
     result = {"name": "Aurora", "data": {}, "error": None}
-    page = await context.new_page()
-    
-    # LEVEL 1: Apply Stealth (Hide Bot Fingerprint)
-    # Note: ไม่ Block Resource แล้ว เพื่อให้เนียนที่สุดเหมือนคนจริง
-    await stealth_async(page)
 
+    page = await context.new_page()
+
+    # ❌ ห้าม block CSS / font สำหรับ Aurora
+    await page.route("**/*", lambda route: route.abort()
+        if route.request.resource_type in ["image", "media"]
+        else route.continue_()
+    )
 
     try:
-        # 2) ใช้ domcontentloaded แบบ sync
-        await page.goto(url, timeout=90000, wait_until="domcontentloaded")
+        last_error = None
 
-        # 3) กัน Cloudflare / JS lag
-        await asyncio.sleep(3)
+        for attempt in range(1, 4):
+            try:
+                print(f"   🔁 Aurora attempt {attempt}/3")
 
-        # 4) soft wait selector
-        try:
-            await page.wait_for_selector("table tbody tr", timeout=15000)
-        except:
-            print("   ⚠️ Aurora table slow, continue anyway")
+                try:
+                    await page.goto(raw_url, timeout=90000, wait_until="domcontentloaded")
+                except:
+                    print("   ⚠️ Raw URL failed, retry encoded URL...")
+                    await page.goto(safe_url, timeout=90000, wait_until="domcontentloaded")
 
-        if await page.locator("table tbody tr").count() > 0:
-            row = page.locator("table tbody tr").first
-            tds = row.locator("td")
+                # กัน Cloudflare JS lag
+                await asyncio.sleep(4)
 
-            time_update = (await tds.nth(0).inner_text()).strip()
-            bar_buy = (await tds.nth(2).inner_text()).strip()
-            bar_sell = (await tds.nth(3).inner_text()).strip()
-            ornament_buy = (await tds.nth(4).inner_text()).strip()
+                # soft wait table
+                try:
+                    await page.wait_for_selector("table tbody tr", timeout=20000)
+                except:
+                    print("   ⚠️ Aurora table slow, continue anyway")
 
-            result["data"] = {
-                "time": time_update,
-                "gold_bar_965": {"buy": bar_buy, "sell": bar_sell},
-                "gold_ornament_965": {"buy": ornament_buy}
-            }
-        else:
-            result["error"] = "Table not found"
+                if await page.locator("table tbody tr").count() == 0:
+                    raise Exception("Aurora table not found")
 
-        print(f"   [OK] Aurora Finished")
+                row = page.locator("table tbody tr").first
+                tds = row.locator("td")
 
-    except Exception as e:
-        print(f"   [X] Aurora Error: {e}")
-        result["error"] = str(e)
+                time_update = (await tds.nth(0).inner_text()).strip()
+                bar_buy = (await tds.nth(2).inner_text()).strip()
+                bar_sell = (await tds.nth(3).inner_text()).strip()
+                ornament_buy = (await tds.nth(4).inner_text()).strip()
+
+                result["data"] = {
+                    "time": time_update,
+                    "gold_bar_965": {"buy": bar_buy, "sell": bar_sell},
+                    "gold_ornament_965": {"buy": ornament_buy}
+                }
+
+                print(f"   [OK] Aurora Finished")
+                return result
+
+            except Exception as e:
+                last_error = str(e)
+                print(f"   ⚠️ Aurora attempt {attempt} failed: {e}")
+
+                # backoff หนักขึ้นเรื่อย ๆ
+                await asyncio.sleep(10 * attempt)
+
+        # ถ้าหมด 3 รอบแล้วยังไม่รอด
+        result["error"] = last_error or "Aurora failed after retries"
+        print(f"   [X] Aurora Failed after 3 attempts")
+
     finally:
         await page.close()
 
@@ -276,25 +297,16 @@ async def scrape_ausiris(context: BrowserContext) -> Dict[str, Any]:
     return result
 
 async def scrape_all_shops(context: BrowserContext) -> List[Dict[str, Any]]:
-    print("\n>> Starting Parallel Scraping for 5 Shops (Limited Concurrency: 2)...")
+    print("\n>> Starting Parallel Scraping for 5 Shops...")
     start_time = asyncio.get_event_loop().time()
-
-    # Semaphore: จำกัดให้รันพร้อมกันสูงสุดแค่ 2 ร้าน (เพื่อประหยัด RAM)
-    sem = asyncio.Semaphore(2)
-
-    async def protected_scrape(func):
-        async with sem:
-             return await func(context)
     
-    tasks = [
-        protected_scrape(scrape_aurora),
-        protected_scrape(scrape_mts_gold),
-        protected_scrape(scrape_hua_seng_heng),
-        protected_scrape(scrape_chin_hua_heng),
-        protected_scrape(scrape_ausiris)
-    ]
-
-    results = await asyncio.gather(*tasks)
+    results = await asyncio.gather(
+        scrape_aurora(context),
+        scrape_mts_gold(context),
+        scrape_hua_seng_heng(context),
+        scrape_chin_hua_heng(context),
+        scrape_ausiris(context)
+    )
     
     end_time = asyncio.get_event_loop().time()
     duration = end_time - start_time
