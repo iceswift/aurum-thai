@@ -15,6 +15,8 @@ async def block_heavy_resources(page: Page):
 async def scrape_aurora(context: BrowserContext) -> Dict[str, Any]:
     """ร้านที่ 1: Aurora (Classic Version - Stable)"""
     url = "https://www.aurora.co.th/price/gold_pricelist/ราคาทองวันนี้"
+    print(f"   >> Starting Aurora ({url})")
+    
     # ใช้ Structure เดิมเพื่อให้ main.py ไม่พัง (keys: name, data, error)
     result = {"name": "Aurora", "data": {}, "error": None}
     
@@ -26,19 +28,12 @@ async def scrape_aurora(context: BrowserContext) -> Dict[str, Any]:
         await asyncio.sleep(2) 
         
         # 1. รอให้ตารางโหลดขึ้นมา
-        # โครงสร้างใหม่ไม่มี class ชัดเจน ให้ใช้ container div ที่มี style overflow-x: auto
-        # หรือเจาะจง table โดยตรง
         await page.wait_for_selector("div[style*='overflow-x: auto'] table tbody tr", timeout=TIMEOUT_MS)
         
         # 2. ดึงแถวแรกสุด (ข้อมูลล่าสุด)
         latest_row = page.locator("div[style*='overflow-x: auto'] table tbody tr").first
         
         # 3. ดึงข้อมูลแต่ละคอลัมน์ (td)
-        # index 0: เวลา
-        # index 1: ครั้งที่
-        # index 2: ทองแท่ง รับซื้อ
-        # index 3: ทองแท่ง ขายออก
-        # index 4: ทองรูปพรรณ รับซื้อ (รับซื้อรูปพรรณออโรร่า)
         tds = latest_row.locator("td")
         
         bullion_buy = (await tds.nth(2).inner_text()).strip()
@@ -53,11 +48,13 @@ async def scrape_aurora(context: BrowserContext) -> Dict[str, Any]:
             },
             "gold_ornament_965": {
                 "buy": ornament_buy,
-                "sell": "ไม่ระบุในตาราง" # ในตารางมีแค่ช่องรับซื้อรูปพรรณ
+                "sell": "ไม่ระบุในตาราง"
             }
         }
+        print(f"   [OK] Aurora Finished")
 
     except Exception as e:
+        print(f"   [X] Aurora Error: {e}")
         result["error"] = f"Aurora Error (New Structure): {str(e)}"
     
     finally:
@@ -142,7 +139,11 @@ async def scrape_hua_seng_heng(context: BrowserContext) -> Dict[str, Any]:
             # 2. ทองรูปพรรณ
             if await page.locator("#bidjewelry").count() > 0:
                 buy_jewel = await page.locator("#bidjewelry").first.text_content()
-                sell_jewel = await page.locator("#askjewelry").first.text_content()
+                # Check optional sell price
+                sell_jewel = "N/A"
+                if await page.locator("#askjewelry").count() > 0:
+                     sell_jewel = await page.locator("#askjewelry").first.text_content()
+                
                 result["data"]["ornament_965"] = {
                     "buy": buy_jewel.strip(),
                     "sell": sell_jewel.strip()
