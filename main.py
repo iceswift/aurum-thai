@@ -45,6 +45,9 @@ def is_market_open():
     if weekday == 6: 
         return False, "Closed (Sunday)"
     
+    # Debug Time
+    # print(f"🕒 Server Thai Time: {now.strftime('%Y-%m-%d %H:%M:%S')} (Weekday: {weekday})")
+    
     # วันเสาร์ (5): เปิดแค่ 09:00 - 09:30
     if weekday == 5:
         if datetime.time(9, 0) <= current <= datetime.time(9, 30):
@@ -55,18 +58,18 @@ def is_market_open():
     if datetime.time(9, 0) <= current <= datetime.time(17, 45):
         return True, "Open (Weekday)"
         
-    return False, "Closed (Outside Hours)"
+    return False, f"Closed (Outside Hours: {current.strftime('%H:%M')})"
 
 def is_shop_open():
     """
     เช็คเวลาทำการร้านค้า (24/7 ยกเว้นปิดเสาร์ 9:30 - จันทร์ 00:00)
-    - จันทร์ (0) - ศุกร์ (4): เปิด 24 ชม.
-    - เสาร์ (5): ปิดหลัง 09:30
-    - อาทิตย์ (6): ปิดทั้งวัน
     """
     now = get_thai_time()
     weekday = now.weekday()
     current_time = now.time()
+    
+    # Debug Shop Time
+    print(f"🕒 Checker: {now.strftime('%H:%M')} | Weekday: {weekday}")
 
     # วันอาทิตย์ (6): ปิดตลอดวัน
     if weekday == 6:
@@ -87,8 +90,10 @@ def is_shop_open():
 # --- LOGIC A: เว็บเวอร์ชันใหม่ (Clean URL) ---
 async def scrape_new_version(page: Page) -> Dict[str, Any]:
     print("   👉 Trying New Version Logic...")
-    await page.goto("https://www.goldtraders.or.th/updatepricelist", timeout=15000)
-    await page.wait_for_selector("table tbody tr", timeout=5000) 
+    # Timeout 15s -> 60s (เผื่อเว็บช้ามาก)
+    await page.goto("https://www.goldtraders.or.th/updatepricelist", timeout=60000)
+    # Timeout 5s -> 30s
+    await page.wait_for_selector("table tbody tr", timeout=30000) 
 
     # 1. Gold Bar
     gold_data = []
@@ -258,11 +263,12 @@ async def update_all_data(scrape_gold: bool = True, scrape_shops: bool = False):
                 # print(f"🔍 [{now_str}] Discovery Mode: Finding active website...")
                 try:
                     result_data = await scrape_new_version(page)
-                except Exception:
+                except Exception as e_new:
+                    print(f"   ⚠️ Discovery Mode: New Version failed ({e_new})")
                     try:
                         result_data = await scrape_classic_version(page)
-                    except Exception:
-                        print("   ❌ All sources failed.")
+                    except Exception as e_classic:
+                        print(f"   ❌ All sources failed. Classic Error: {e_classic}")
 
             # --- SAVE DATA ---
             if result_data:
