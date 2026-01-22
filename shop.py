@@ -13,44 +13,50 @@ async def block_heavy_resources(page: Page):
     )
 
 async def scrape_aurora(context: BrowserContext) -> Dict[str, Any]:
-    """ร้านที่ 1: Aurora (Update Structure 2025)"""
+    """ร้านที่ 1: Aurora (Updated for New Table Structure 2025)"""
     url = "https://www.aurora.co.th/price/gold_pricelist/ราคาทองวันนี้"
     print(f"   >> Starting Aurora")
     
-    # กำหนด Timeout ตรงนี้ หรือดึงมาจาก Global Config ของคุณ
+    # กำหนด Timeout
     TIMEOUT_MS = 30000 
     
     result = {"name": "Aurora", "data": {}, "error": None}
     page = await context.new_page()
     
     try:
-        # ใช้ commit เพื่อความเร็ว (ไม่รอโหลดรูป/script จนครบ)
-        await page.goto(url, timeout=TIMEOUT_MS, wait_until="commit")
+        # ใช้ domcontentloaded เพื่อความชัวร์ว่าโครงสร้าง HTML มาครบ
+        await page.goto(url, timeout=TIMEOUT_MS, wait_until="domcontentloaded")
         
-        # รอให้ Element ตารางโผล่มาจริงๆ (ปรับ Selector ให้เจาะจงที่ tbody)
+        # รอให้ Element ตารางใน tbody โหลดขึ้นมา (ใช้ state='visible' เพื่อให้แน่ใจว่าดึง text ได้)
         try:
-            await page.wait_for_selector("table tbody tr", state="attached", timeout=15000)
+            await page.wait_for_selector("table tbody tr", state="visible", timeout=15000)
         except Exception:
             print("   ⚠️ Aurora Wait Selector Timeout - Trying to scrape anyway...")
         
-        # ดึงแถวข้อมูล
+        # ดึงแถวข้อมูลทั้งหมดใน tbody
         rows = page.locator("table tbody tr")
         
         # ตรวจสอบว่ามีข้อมูลแถวอยู่จริงหรือไม่
         if await rows.count() > 0:
-            # ดึงแถวแรกสุด (ข้อมูลล่าสุด)
+            # ดึงแถวแรกสุด (ล่าสุด)
             latest_row = rows.first
             tds = latest_row.locator("td")
             
-            # ตรวจสอบว่ามีจำนวน Column มากพอไหม (กัน Error IndexOutOfRange)
-            if await tds.count() >= 5:
-                # Mapping Index ใหม่ (2025):
-                # td[0]=เวลา, td[1]=ครั้งที่, td[2]=แท่งรับซื้อ, td[3]=แท่งขายออก, td[4]=รูปพรรณรับซื้อ
+            # ตรวจสอบจำนวน Column (HTML ใหม่มี 6 คอลัมน์รวมเวลา)
+            count_td = await tds.count()
+            if count_td >= 5:
+                # --- Mapping Index ตาม HTML ใหม่ ---
+                # td[0] = เวลา
+                # td[1] = ครั้งที่
+                # td[2] = ทองคำแท่ง รับซื้อ  (New Index)
+                # td[3] = ทองคำแท่ง ขายออก  (New Index)
+                # td[4] = ทองรูปพรรณ รับซื้อ (New Index)
                 
                 bullion_buy = await tds.nth(2).inner_text()
                 bullion_sell = await tds.nth(3).inner_text()
                 ornament_buy = await tds.nth(4).inner_text()
                 
+                # Clean Data (ลบช่องว่างหัวท้าย)
                 result["data"] = {
                     "gold_bar_965": {
                         "buy": bullion_buy.strip(),
@@ -63,8 +69,8 @@ async def scrape_aurora(context: BrowserContext) -> Dict[str, Any]:
                 }
             else:
                  # กรณีโครงสร้างเปลี่ยนจน Column ไม่ครบ
-                 result["error"] = "Table columns mismatch"
-                 print("   ⚠️ Aurora Columns count mismatch")
+                 result["error"] = f"Table columns mismatch (Found {count_td})"
+                 print(f"   ⚠️ Aurora Columns count mismatch: Found {count_td}")
         else:
              print("   ⚠️ Aurora Table row not found")
              result["error"] = "Table row not found"
