@@ -13,50 +13,53 @@ async def block_heavy_resources(page: Page):
     )
 
 async def scrape_aurora(context: BrowserContext) -> Dict[str, Any]:
-    """ร้านที่ 1: Aurora (Updated for New Table Structure 2025)"""
+    """ร้านที่ 1: Aurora (Optimized for Speed & Timeout Fix)"""
     url = "https://www.aurora.co.th/price/gold_pricelist/ราคาทองวันนี้"
     print(f"   >> Starting Aurora")
     
-    # กำหนด Timeout
+    # Timeout 30 วินาที
     TIMEOUT_MS = 30000 
     
     result = {"name": "Aurora", "data": {}, "error": None}
+    
+    # สร้าง Page ใหม่
     page = await context.new_page()
     
     try:
-        # ใช้ domcontentloaded เพื่อความชัวร์ว่าโครงสร้าง HTML มาครบ
-        await page.goto(url, timeout=TIMEOUT_MS, wait_until="domcontentloaded")
+        # 1. เทคนิคบล็อกของหนัก (รูปภาพ/Font/CSS) เพื่อให้โหลดไวขึ้น
+        await page.route("**/*", lambda route: route.abort() 
+            if route.request.resource_type in ["image", "media", "font", "stylesheet"] 
+            else route.continue_()
+        )
+
+        # 2. ปรับ wait_until เป็น 'commit' (แค่เชื่อมต่อได้ก็ไปต่อเลย ไม่ต้องรอโหลดหน้าเสร็จ)
+        # วิธีนี้แก้ปัญหา Timeout ได้ดีที่สุดสำหรับเว็บที่โหลดช้า
+        await page.goto(url, timeout=TIMEOUT_MS, wait_until="commit")
         
-        # รอให้ Element ตารางใน tbody โหลดขึ้นมา (ใช้ state='visible' เพื่อให้แน่ใจว่าดึง text ได้)
+        # 3. รอเฉพาะตารางที่เราต้องการ (ไม่ต้องรอทั้งหน้า)
+        # ใช้ state='domcontentloaded' เฉพาะ element นี้
         try:
-            await page.wait_for_selector("table tbody tr", state="visible", timeout=15000)
+            await page.wait_for_selector("table tbody tr", state="attached", timeout=15000)
         except Exception:
-            print("   ⚠️ Aurora Wait Selector Timeout - Trying to scrape anyway...")
+            print("   ⚠️ Aurora Wait Selector Timeout (Non-fatal if data exists)")
         
-        # ดึงแถวข้อมูลทั้งหมดใน tbody
+        # ดึงแถวข้อมูล
         rows = page.locator("table tbody tr")
         
-        # ตรวจสอบว่ามีข้อมูลแถวอยู่จริงหรือไม่
         if await rows.count() > 0:
-            # ดึงแถวแรกสุด (ล่าสุด)
             latest_row = rows.first
             tds = latest_row.locator("td")
             
-            # ตรวจสอบจำนวน Column (HTML ใหม่มี 6 คอลัมน์รวมเวลา)
-            count_td = await tds.count()
-            if count_td >= 5:
-                # --- Mapping Index ตาม HTML ใหม่ ---
-                # td[0] = เวลา
-                # td[1] = ครั้งที่
-                # td[2] = ทองคำแท่ง รับซื้อ  (New Index)
-                # td[3] = ทองคำแท่ง ขายออก  (New Index)
-                # td[4] = ทองรูปพรรณ รับซื้อ (New Index)
+            # เช็คจำนวนคอลัมน์ (ตามโครงสร้างใหม่ที่คุณให้มามี 5-6 คอลัมน์)
+            if await tds.count() >= 5:
+                # Mapping Index ใหม่ (2025):
+                # td[0]=เวลา, td[1]=ครั้งที่, td[2]=แท่งรับซื้อ, td[3]=แท่งขายออก, td[4]=รูปพรรณรับซื้อ
                 
+                # ใช้ inner_text() และ strip() เพื่อความสะอาดของข้อมูล
                 bullion_buy = await tds.nth(2).inner_text()
                 bullion_sell = await tds.nth(3).inner_text()
                 ornament_buy = await tds.nth(4).inner_text()
                 
-                # Clean Data (ลบช่องว่างหัวท้าย)
                 result["data"] = {
                     "gold_bar_965": {
                         "buy": bullion_buy.strip(),
@@ -64,14 +67,16 @@ async def scrape_aurora(context: BrowserContext) -> Dict[str, Any]:
                     },
                     "gold_ornament_965": {
                         "buy": ornament_buy.strip(),
-                        "sell": "ไม่ระบุ" # Aurora ปกติไม่โชว์ขายออกรูปพรรณในตาราง
+                        "sell": "ไม่ระบุ"
                     }
                 }
             else:
-                 # กรณีโครงสร้างเปลี่ยนจน Column ไม่ครบ
-                 result["error"] = f"Table columns mismatch (Found {count_td})"
-                 print(f"   ⚠️ Aurora Columns count mismatch: Found {count_td}")
+                 result["error"] = "Table columns mismatch"
+                 print(f"   ⚠️ Aurora Columns count mismatch")
         else:
+             # ถ้าไม่เจอแถว ลองปริ้น HTML ดู debug ได้ถ้าจำเป็น
+             # content = await page.content()
+             # print(content[:500]) 
              print("   ⚠️ Aurora Table row not found")
              result["error"] = "Table row not found"
              
@@ -82,6 +87,7 @@ async def scrape_aurora(context: BrowserContext) -> Dict[str, Any]:
         result["error"] = str(e)
         
     finally:
+        # สำคัญ: ต้องปิด page เสมอ เพื่อคืน RAM
         await page.close()
         
     return result
