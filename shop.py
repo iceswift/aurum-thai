@@ -18,13 +18,20 @@ async def scrape_aurora(context: BrowserContext) -> Dict[str, Any]:
     print(f"   >> Starting Aurora")
     
     result = {"name": "Aurora", "data": {}, "error": None}
-    page = await context.new_page()
-    await block_heavy_resources(page) # Block images/fonts
     
+    # V3: ใช้ Custom Headers เพื่อให้เหมือนคนจริงที่สุด (แก้ WAF Block)
+    # ไม่ใช้ block_heavy_resources() เพราะอาจไป block script ที่จำเป็น
+    page = await context.new_page()
+    await page.set_extra_http_headers({
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept-Language": "th-TH,th;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+        "Referer": "https://www.google.com/"
+    })
+
     try:
-        # ปรับจูน V2: เปลี่ยนเป็น 'commit' (แค่เชื่อมต่อได้ก็พอ) 
-        # แล้วใช้การรอ Element แทน เพื่อแก้ปัญหาโหลด script นานจน Timeout
-        await page.goto(url, timeout=TIMEOUT_MS, wait_until="commit")
+        # ปรับจูน V3: ยิงแบบคนจริง (domcontentloaded + headers)
+        await page.goto(url, timeout=TIMEOUT_MS, wait_until="domcontentloaded")
         
         # รอให้ Element ตารางโผล่มาจริงๆ (Timeout 60s)
         try:
