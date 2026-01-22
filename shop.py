@@ -19,12 +19,17 @@ async def scrape_aurora(context: BrowserContext) -> Dict[str, Any]:
     
     result = {"name": "Aurora", "data": {}, "error": None}
     page = await context.new_page()
-    # Note: Removed block_heavy_resources(page) as per user request to revert
+    await block_heavy_resources(page) # Block images/fonts (Restore Fix)
     
     try:
-        # Revert: Switch back to domcontentloaded with 60s timeout
-        await page.goto(url, timeout=60000, wait_until="domcontentloaded")
-        await asyncio.sleep(5)
+        # Restore Fix: Use 'commit' + wait_for_selector to bypass slow loading
+        await page.goto(url, timeout=TIMEOUT_MS, wait_until="commit")
+        
+        # รอให้ Element ตารางโผล่มาจริงๆ (Timeout 60s)
+        try:
+             await page.wait_for_selector("table tbody tr", state="attached", timeout=TIMEOUT_MS)
+        except Exception:
+             print("   ⚠️ Aurora Wait Selector Timeout - Trying to scrape anyway...")
         
         # Safe Check: ดูว่ามีตารางไหม
         # ใช้ Selector ใหม่ (table tbody tr) ที่เพิ่งแก้ไป (แต่ Logic การรอเป็นแบบเดิม)
