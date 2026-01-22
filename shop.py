@@ -13,60 +13,58 @@ async def block_heavy_resources(page: Page):
     )
 
 async def scrape_aurora(context: BrowserContext) -> Dict[str, Any]:
-    """ร้านที่ 1: Aurora"""
     url = "https://www.aurora.co.th/price/gold_pricelist/ราคาทองวันนี้"
     print(f"   >> Starting Aurora")
-    
+
     result = {"name": "Aurora", "data": {}, "error": None}
     page = await context.new_page()
-    await block_heavy_resources(page) # Block images/fonts (Restore Fix)
-    
+
+    # 1) ผ่อน block เหลือแค่ image/media
+    await page.route("**/*", lambda route: route.abort()
+        if route.request.resource_type in ["image", "media"]
+        else route.continue_()
+    )
+
     try:
-        # Restore Fix: Use 'commit' + wait_for_selector to bypass slow loading
-        await page.goto(url, timeout=TIMEOUT_MS, wait_until="commit")
-        
-        # รอให้ Element ตารางโผล่มาจริงๆ (Timeout 60s)
+        # 2) ใช้ domcontentloaded แบบ sync
+        await page.goto(url, timeout=90000, wait_until="domcontentloaded")
+
+        # 3) กัน Cloudflare / JS lag
+        await asyncio.sleep(3)
+
+        # 4) soft wait selector
         try:
-             await page.wait_for_selector("table tbody tr", state="attached", timeout=TIMEOUT_MS)
-        except Exception:
-             print("   ⚠️ Aurora Wait Selector Timeout - Trying to scrape anyway...")
-        
-        # Safe Check: ดูว่ามีตารางไหม
-        # ใช้ Selector ใหม่ (table tbody tr) ที่เพิ่งแก้ไป (แต่ Logic การรอเป็นแบบเดิม)
+            await page.wait_for_selector("table tbody tr", timeout=15000)
+        except:
+            print("   ⚠️ Aurora table slow, continue anyway")
+
         if await page.locator("table tbody tr").count() > 0:
-            # ดึงแถวแรกสุด (ข้อมูลล่าสุด)
-            latest_row = page.locator("table tbody tr").first
-            
-            tds = latest_row.locator("td")
-            
-            # 2. ปรับลำดับ Index ใหม่:
-            bullion_buy = await tds.nth(2).inner_text()
-            bullion_sell = await tds.nth(3).inner_text()
-            ornament_buy = await tds.nth(4).inner_text()
-            
+            row = page.locator("table tbody tr").first
+            tds = row.locator("td")
+
+            time_update = (await tds.nth(0).inner_text()).strip()
+            bar_buy = (await tds.nth(2).inner_text()).strip()
+            bar_sell = (await tds.nth(3).inner_text()).strip()
+            ornament_buy = (await tds.nth(4).inner_text()).strip()
+
             result["data"] = {
-                "gold_bar_965": {
-                    "buy": bullion_buy.strip(),
-                    "sell": bullion_sell.strip()
-                },
-                "gold_ornament_965": {
-                    "buy": ornament_buy.strip(),
-                    "sell": "ไม่ระบุในตาราง"
-                }
+                "time": time_update,
+                "gold_bar_965": {"buy": bar_buy, "sell": bar_sell},
+                "gold_ornament_965": {"buy": ornament_buy}
             }
         else:
-             print("   ⚠️ Aurora Table not found")
-             result["error"] = "Table not found"
-             
+            result["error"] = "Table not found"
+
         print(f"   [OK] Aurora Finished")
-        
+
     except Exception as e:
         print(f"   [X] Aurora Error: {e}")
         result["error"] = str(e)
     finally:
         await page.close()
-        
+
     return result
+
 
 async def scrape_mts_gold(context: BrowserContext) -> Dict[str, Any]:
     """ร้านที่ 2: MTS Gold"""
