@@ -48,11 +48,11 @@ def is_market_open():
     # Debug Time
     # print(f"🕒 Server Thai Time: {now.strftime('%Y-%m-%d %H:%M:%S')} (Weekday: {weekday})")
     
-    # วันเสาร์ (5): เปิดแค่ 09:00 - 09:30
+    # วันเสาร์ (5): เปิดแค่ 09:00 - 10:00 (ขยายเวลาตามคำขอ)
     if weekday == 5:
-        if datetime.time(9, 0) <= current <= datetime.time(9, 30):
+        if datetime.time(9, 0) <= current <= datetime.time(10, 0):
             return True, "Open (Sat Morning)"
-        return False, "Closed (Sat > 09:30)"
+        return False, "Closed (Sat > 10:00)"
 
     # วันธรรมดา (0-4): เปิด 09:00 - 17:45
     if datetime.time(9, 0) <= current <= datetime.time(17, 45):
