@@ -118,18 +118,26 @@ async def scrape_new_version(page: Page) -> Dict[str, Any]:
     # 2. Jewelry Percent
     jewelry_data = []
     try:
-        await page.goto("https://www.goldtraders.or.th/dailyprices", timeout=15000)
-        await page.wait_for_selector("td:has-text('96.5%')", timeout=5000)
-        rows = await page.locator("table").filter(has_text="96.5%").locator("tbody tr").all()
-        for row in rows:
-            cells = await row.locator("td").all()
-            if len(cells) >= 4:
-                texts = await asyncio.gather(*[cell.inner_text() for cell in cells])
-                jewelry_data.append({
-                    "type": texts[0].strip(),
-                    "buy": texts[2].strip(),
-                    "sell": texts[3].strip()
-                })
+        await page.goto("https://www.goldtraders.or.th/dailyprices", timeout=30000)
+        
+        # New Logic: เจาะจงตารางแรกสุด (Main Table) เท่านั้น เพื่อหนีตาราง History ด้านล่าง
+        # ตารางแรกมักจะเป็นราคาทองรูปพรรณ 96.5% / 99.99%
+        target_table = page.locator("table").first
+        
+        if await target_table.count() > 0:
+            rows = await target_table.locator("tbody tr").all()
+            for row in rows:
+                cells = await row.locator("td").all()
+                if len(cells) >= 3: # ธรรมดามี 3-4 คอลัมน์
+                    texts = await asyncio.gather(*[cell.inner_text() for cell in cells])
+                    
+                    # กรองเฉพาะแถวที่มีตัวเลขราคา (ป้องกัน Header/Footer)
+                    if any(char.isdigit() for char in texts[-1]): 
+                        jewelry_data.append({
+                            "type": texts[0].strip(),
+                            "buy": texts[2].strip() if len(texts) > 2 else "-",
+                            "sell": texts[3].strip() if len(texts) > 3 else "-"
+                        })
     except Exception as e:
         print(f"   ⚠️ New Version Jewelry Error: {e}")
 
