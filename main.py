@@ -356,6 +356,7 @@ async def update_all_data(scrape_gold: bool = True, scrape_shops: bool = False):
                 latest_data = GLOBAL_CACHE["gold_bar_data"][-1]
             
             current_sell = latest_data.get("bullion_sell", "").replace(",", "")
+            current_ornament = latest_data.get("ornament_sell", "").replace(",", "")
             
             # ตรวจสอบว่าราคาเปลี่ยนจากครั้งก่อนหรือไม่
             if current_sell and current_sell != NOTIF_CACHE["last_gold_bar_sell"]:
@@ -368,18 +369,23 @@ async def update_all_data(scrape_gold: bool = True, scrape_shops: bool = False):
                     # พยายามแปลงราคาให้สวยงาม
                     try:
                         price_num = "{:,}".format(int(current_sell))
+                        ornament_num = "{:,}".format(int(current_ornament))
                     except:
                         price_num = current_sell
+                        ornament_num = current_ornament
                         
                     title = "🔔 ปรับราคาทองคำล่าสุด!"
-                    body = f"ราคาทองแท่งวันนี้: {price_num} บาท ({change_text})"
+                    # เพิ่มราคาทองรูปพรรณใน Body ด้วย
+                    body = f"ทองแท่ง: {price_num} | รูปพรรณ: {ornament_num} ({change_text})"
                     
                     # ส่งในรูปแบบ async โดยไม่รอผลกระทบต่อ scraping cycle
                     asyncio.create_task(send_push_notification(
                         title=title,
                         body=body,
                         data={
-                            "price": current_sell,
+                            "price": current_sell,           # ราคาแท่ง
+                            "ornament": current_ornament,    # ราคารูปพรรณ (New!)
+                            "change": change_text,           # การเปลี่ยนแปลง (New!)
                             "type": "bullion",
                             "update_time": latest_data.get("time", "")
                         }
