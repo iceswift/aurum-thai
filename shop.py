@@ -76,6 +76,13 @@ async def scrape_mts_gold(context: BrowserContext) -> Dict[str, Any]:
     print(f"   >> Starting MTS Gold ({url})")
     
     result = {"name": "MTS Gold", "data": {}, "error": None}
+
+    # --- [DISABLED] ถอดปลั๊กตามคำสั่ง User ---
+    print("   🔌 MTS Gold is currently unplugged (Disabled).")
+    result["error"] = "Service Disabled"
+    return result
+    # -----------------------------------------------
+
     page = await context.new_page()
     await block_heavy_resources(page) # Block images/fonts
     
@@ -124,6 +131,13 @@ async def scrape_hua_seng_heng(context: BrowserContext) -> Dict[str, Any]:
     print(f"   >> Starting Hua Seng Heng ({url})")
     
     result = {"name": "Hua Seng Heng", "data": {}, "error": None}
+    
+    # --- [DISABLED] ถอดปลั๊กตามคำสั่ง User ---
+    print("   🔌 Hua Seng Heng is currently unplugged (Disabled).")
+    result["error"] = "Service Disabled"
+    return result
+    # -----------------------------------------------
+
     page = await context.new_page()
     await block_heavy_resources(page) # Block images/fonts
     
@@ -181,6 +195,13 @@ async def scrape_chin_hua_heng(context: BrowserContext) -> Dict[str, Any]:
     print(f"   >> Starting Chin Hua Heng ({url})")
     
     result = {"name": "Chin Hua Heng", "data": {}, "error": None}
+    
+    # --- [DISABLED] ถอดปลั๊กตามคำสั่ง User ---
+    print("   🔌 Chin Hua Heng is currently unplugged (Disabled).")
+    result["error"] = "Service Disabled"
+    return result
+    # -----------------------------------------------
+
     page = await context.new_page()
     await block_heavy_resources(page) # Block images/fonts
     
@@ -233,6 +254,13 @@ async def scrape_ausiris(context: BrowserContext) -> Dict[str, Any]:
     print(f"   >> Starting Ausiris ({url})")
     
     result = {"name": "Ausiris", "data": {}, "error": None}
+    
+    # --- [DISABLED] ถอดปลั๊กตามคำสั่ง User ---
+    print("   🔌 Ausiris is currently unplugged (Disabled).")
+    result["error"] = "Service Disabled"
+    return result
+    # -----------------------------------------------
+
     page = await context.new_page()
     await block_heavy_resources(page) # Block images/fonts
     
