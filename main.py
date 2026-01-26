@@ -98,6 +98,7 @@ async def scrape_new_version(page: Page) -> Dict[str, Any]:
     # 1. Gold Bar
     gold_data = []
     rows = await page.locator("table tbody tr").all()
+    print(f"   [Debug] New Version Found {len(rows)} rows")
     for row in rows:
         cells = await row.locator("td").all()
         if len(cells) >= 10:
@@ -277,10 +278,11 @@ async def update_all_data(scrape_gold: bool = True, scrape_shops: bool = False):
                     result_data = await scrape_new_version(page)
                 except Exception as e_new:
                     print(f"   ⚠️ Discovery Mode: New Version failed ({e_new})")
-                    try:
-                        result_data = await scrape_classic_version(page)
-                    except Exception as e_classic:
-                        print(f"   ❌ All sources failed. Classic Error: {e_classic}")
+                    # [DISABLED] Fallback to Classic as per user request
+                    # try:
+                    #     result_data = await scrape_classic_version(page)
+                    # except Exception as e_classic:
+                    #     print(f"   ❌ All sources failed. Classic Error: {e_classic}")
 
             # --- SAVE DATA ---
             if result_data:
