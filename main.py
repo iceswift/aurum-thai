@@ -115,6 +115,10 @@ async def scrape_new_version(page: Page) -> Dict[str, Any]:
                 "change": texts[9].replace('\n', '').strip()
             })
 
+    # Validation: ถ้าไม่เจอข้อมูลทองคำแท่งเลย ให้ถือว่า "ล้มเหลว" เพื่อไปใช้ Classic แทน
+    if not gold_data:
+        raise Exception("Zero Gold Bar rows found in New Version")
+
     # 2. Jewelry Percent
     jewelry_data = []
     try:
@@ -146,8 +150,8 @@ async def scrape_new_version(page: Page) -> Dict[str, Any]:
 # --- LOGIC B: เว็บเวอร์ชันเก่า (Classic .aspx) ---
 async def scrape_classic_version(page: Page) -> Dict[str, Any]:
     print("   👉 Trying Classic Version Logic (Fallback)...")
-    await page.goto("https://www.goldtraders.or.th/UpdatePriceList.aspx", timeout=15000)
-    await page.wait_for_selector("#DetailPlace_MainGridView", timeout=5000)
+    await page.goto("https://www.goldtraders.or.th/UpdatePriceList.aspx", timeout=30000)
+    await page.wait_for_selector("#DetailPlace_MainGridView", timeout=15000)
 
     # 1. Gold Bar
     gold_data = []
