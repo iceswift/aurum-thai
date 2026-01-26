@@ -2,3 +2,9 @@ __pycache__
 *.pyc
 .env
 venv/
+
+# Firebase & Secrets
+firebase-service-account.json
+google-services.json
+GoogleService-Info.plist
+test_fcm.py

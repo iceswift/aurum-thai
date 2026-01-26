@@ -5,6 +5,9 @@ import uvicorn
 import asyncio
 import datetime
 from typing import Dict, Any, Optional, List
+import os
+import firebase_admin
+from firebase_admin import credentials, messaging
 from shop import scrape_all_shops
 
 # ==============================================================================
@@ -23,7 +26,44 @@ playwright_instance = None
 browser_instance: Optional[Browser] = None
 
 # ==============================================================================
-# 2. HELPER FUNCTIONS
+# 2. FIREBASE & NOTIFICATION CONFIG (กำหนดค่า Firebase และการแจ้งเตือน)
+# ==============================================================================
+# Cache ราคาสุดท้ายเพื่อป้องกันการส่งข้อความซ้ำ
+NOTIF_CACHE = {
+    "last_gold_bar_sell": None,
+    "topic_name": "gold_price_updates"
+}
+
+# เริ่มต้น Firebase Admin SDK
+try:
+    cred_path = os.path.join(os.path.dirname(__file__), "firebase-service-account.json")
+    if os.path.exists(cred_path):
+        cred = credentials.Certificate(cred_path)
+        firebase_admin.initialize_app(cred)
+        print("✅ [Firebase] SDK Initialized Successfully")
+    else:
+        print("⚠️ [Firebase] Warning: firebase-service-account.json not found. Push notifications disabled.")
+except Exception as e:
+    print(f"❌ [Firebase] Initialization Error: {e}")
+
+async def send_push_notification(title: str, body: str, data: Dict[str, str] = None):
+    """ส่ง Push Notification ผ่าน FCM Topic"""
+    try:
+        message = messaging.Message(
+            notification=messaging.Notification(
+                title=title,
+                body=body,
+            ),
+            data=data or {},
+            topic=NOTIF_CACHE["topic_name"],
+        )
+        response = messaging.send(message)
+        print(f"🔔 [Push] Sent Success: {response}")
+    except Exception as e:
+        print(f"❌ [Push] Send Error: {e}")
+
+# ==============================================================================
+# 3. HELPER FUNCTIONS
 # ==============================================================================
 def get_thai_time():
     """แปลงเวลาปัจจุบันเป็นเวลาไทย (UTC+7)"""
@@ -306,6 +346,45 @@ async def update_all_data(scrape_gold: bool = True, scrape_shops: bool = False):
 
         GLOBAL_CACHE["last_updated"] = get_thai_time().strftime("%Y-%m-%d %H:%M:%S")
 
+        # --- PHASE 4: CHECK FOR PRICE CHANGE & NOTIFY ---
+        if scrape_gold and GLOBAL_CACHE["gold_bar_data"]:
+            # ดึงข้อมูลราคาทองแท่งล่าสุด
+            latest_data = None
+            if GLOBAL_CACHE["source_type"] == "Classic Website":
+                latest_data = GLOBAL_CACHE["gold_bar_data"][0]
+            else:
+                latest_data = GLOBAL_CACHE["gold_bar_data"][-1]
+            
+            current_sell = latest_data.get("bullion_sell", "").replace(",", "")
+            
+            # ตรวจสอบว่าราคาเปลี่ยนจากครั้งก่อนหรือไม่
+            if current_sell and current_sell != NOTIF_CACHE["last_gold_bar_sell"]:
+                old_price = NOTIF_CACHE["last_gold_bar_sell"]
+                NOTIF_CACHE["last_gold_bar_sell"] = current_sell
+                
+                # ถ้าไม่ใช่ครั้งแรกที่รัน (old_price ไม่เป็น None) ให้ส่ง Notification
+                if old_price is not None:
+                    change_text = latest_data.get("change", "0")
+                    # พยายามแปลงราคาให้สวยงาม
+                    try:
+                        price_num = "{:,}".format(int(current_sell))
+                    except:
+                        price_num = current_sell
+                        
+                    title = "🔔 ปรับราคาทองคำล่าสุด!"
+                    body = f"ราคาทองแท่งวันนี้: {price_num} บาท ({change_text})"
+                    
+                    # ส่งในรูปแบบ async โดยไม่รอผลกระทบต่อ scraping cycle
+                    asyncio.create_task(send_push_notification(
+                        title=title,
+                        body=body,
+                        data={
+                            "price": current_sell,
+                            "type": "bullion",
+                            "update_time": latest_data.get("time", "")
+                        }
+                    ))
+    
     except Exception as e:
         print(f"🔥 Critical System Error: {e}")
         GLOBAL_CACHE["source_type"] = "None"
