@@ -93,7 +93,11 @@ async def scrape_new_version(page: Page) -> Dict[str, Any]:
     # Timeout 15s -> 60s (เผื่อเว็บช้ามาก)
     await page.goto("https://www.goldtraders.or.th/updatepricelist", timeout=60000)
     # Timeout 5s -> 30s
-    await page.wait_for_selector("table tbody tr", timeout=30000) 
+    # NEW LOGIC: รอจนกว่าจะมีข้อมูลมากกว่า 2 แถว (Header + Data) ป้องกันการดึงว่าง
+    try:
+        await page.wait_for_function("document.querySelectorAll('table tbody tr').length > 2", timeout=30000)
+    except:
+        print("   ⚠️ Wait Timeout: Table rows did not load in time.") 
 
     # 1. Gold Bar
     gold_data = []
