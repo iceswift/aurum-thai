@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Response
+from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from playwright.async_api import async_playwright, Browser, Page
 import uvicorn
@@ -457,6 +458,15 @@ async def lifespan(app: FastAPI):
     await stop_browser()
 
 app = FastAPI(lifespan=lifespan)
+
+# Allow CORS for PWA and Web Apps
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.get("/")
 def read_root(response: Response):
