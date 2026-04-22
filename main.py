@@ -34,6 +34,7 @@ browser_instance: Optional[Browser] = None
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATE_FILE = os.getenv("NOTIFICATION_STATE_FILE", os.path.join(BASE_DIR, "notification_state.json"))
 CRED_PATH = os.getenv("FIREBASE_CREDENTIALS_PATH", os.path.join(BASE_DIR, "firebase-service-account.json"))
+STALE_AFTER_MINUTES = int(os.getenv("STALE_AFTER_MINUTES", "10"))
 
 def load_notification_state():
     """โหลดสถานะการแจ้งเตือนจากไฟล์ JSON"""
@@ -117,6 +118,36 @@ def set_public_cache(response: Response, max_age=60, s_maxage=60):
 def set_no_store(response: Response):
     """กำหนดไม่ให้ Cache ข้อมูล (สำหรับข้อมูลสถานะหรือข้อมูลที่ยังไม่พร้อม)"""
     response.headers["Cache-Control"] = "no-store"
+
+def get_latest_gold_item():
+    data = GLOBAL_CACHE["gold_bar_data"]
+    if not data:
+        return {}
+    if GLOBAL_CACHE["source_type"] == "Classic Website":
+        return data[0]
+    return data[-1]
+
+def get_cache_age_seconds():
+    last_updated = GLOBAL_CACHE.get("last_updated")
+    if not last_updated:
+        return None
+    try:
+        tz = datetime.timezone(datetime.timedelta(hours=7))
+        updated_at = datetime.datetime.strptime(last_updated, "%Y-%m-%d %H:%M:%S").replace(tzinfo=tz)
+        return max(0, int((get_thai_time() - updated_at).total_seconds()))
+    except Exception:
+        return None
+
+def is_data_stale():
+    if not GLOBAL_CACHE["gold_bar_data"]:
+        return True
+    market_open, _ = is_market_open()
+    if not market_open:
+        return False
+    age_seconds = get_cache_age_seconds()
+    if age_seconds is None:
+        return True
+    return age_seconds > STALE_AFTER_MINUTES * 60
 
 def get_thai_time():
     """แปลงเวลาปัจจุบันเป็นเวลาไทย (UTC+7)"""
@@ -550,6 +581,8 @@ def readiness_check(response: Response):
     return {
         "status": "ready" if has_data else "not_ready",
         "has_gold_data": has_data,
+        "stale": is_data_stale(),
+        "age_seconds": get_cache_age_seconds(),
         "source": GLOBAL_CACHE["source_type"],
         "last_updated": GLOBAL_CACHE["last_updated"],
         "market_status": GLOBAL_CACHE["market_status"]
@@ -562,6 +595,8 @@ def read_root(response: Response):
         "message": "Thai Gold Price API (Hybrid Auto-Switch)",
         "source_used": GLOBAL_CACHE["source_type"],
         "market_status": GLOBAL_CACHE["market_status"],
+        "stale": is_data_stale(),
+        "age_seconds": get_cache_age_seconds(),
         "last_updated": GLOBAL_CACHE["last_updated"]
     }
 
@@ -575,16 +610,12 @@ def get_latest(response: Response):
     set_public_cache(response, max_age=15, s_maxage=30)
     
     # Logic เลือกข้อมูลล่าสุดตาม Source
-    latest_item = {}
-    if GLOBAL_CACHE["source_type"] == "Classic Website":
-        latest_item = data[0]
-    else:
-        latest_item = data[-1]
-
     return {
         "status": "success",
         "source": GLOBAL_CACHE["source_type"],
-        "data": latest_item,
+        "data": get_latest_gold_item(),
+        "stale": is_data_stale(),
+        "age_seconds": get_cache_age_seconds(),
         "updated_at": GLOBAL_CACHE["last_updated"]
     }
 
@@ -597,17 +628,15 @@ def get_gold_buy_only(response: Response):
 
     set_public_cache(response, max_age=15, s_maxage=30)
 
-    latest = {}
-    if GLOBAL_CACHE["source_type"] == "Classic Website":
-        latest = data[0]
-    else:
-        latest = data[-1]
+    latest = get_latest_gold_item()
 
     return {
         "status": "success",
         "source": GLOBAL_CACHE["source_type"],
         "bullion_buy": latest.get("bullion_buy"),
         "ornament_buy": latest.get("ornament_buy"),
+        "stale": is_data_stale(),
+        "age_seconds": get_cache_age_seconds(),
         "updated_at": GLOBAL_CACHE["last_updated"]
     }
 
@@ -618,6 +647,8 @@ def get_history(response: Response):
         "count": len(GLOBAL_CACHE["gold_bar_data"]),
         "source": GLOBAL_CACHE["source_type"],
         "data": GLOBAL_CACHE["gold_bar_data"],
+        "stale": is_data_stale(),
+        "age_seconds": get_cache_age_seconds(),
         "updated_at": GLOBAL_CACHE["last_updated"]
     }
 
@@ -628,6 +659,8 @@ def get_percent(response: Response):
         "count": len(GLOBAL_CACHE["jewelry_percent"]),
         "source": GLOBAL_CACHE["source_type"],
         "data": GLOBAL_CACHE["jewelry_percent"],
+        "stale": is_data_stale(),
+        "age_seconds": get_cache_age_seconds(),
         "updated_at": GLOBAL_CACHE["last_updated"]
     }
 
@@ -637,7 +670,36 @@ def get_shops(response: Response):
     return {
         "count": len(GLOBAL_CACHE["shop_data"]),
         "data": GLOBAL_CACHE["shop_data"],
+        "stale": is_data_stale(),
+        "age_seconds": get_cache_age_seconds(),
         "updated_at": GLOBAL_CACHE["last_updated"]
+    }
+
+@app.get("/api/board")
+def get_board(response: Response):
+    data = GLOBAL_CACHE["gold_bar_data"]
+    if not data:
+        set_no_store(response)
+        return {"status": "waiting_for_data", "market_status": GLOBAL_CACHE["market_status"]}
+
+    set_public_cache(response, max_age=15, s_maxage=30)
+    history_recent = data[:20] if GLOBAL_CACHE["source_type"] == "Classic Website" else data[-20:]
+    return {
+        "status": "success",
+        "source": GLOBAL_CACHE["source_type"],
+        "market_status": GLOBAL_CACHE["market_status"],
+        "updated_at": GLOBAL_CACHE["last_updated"],
+        "stale": is_data_stale(),
+        "age_seconds": get_cache_age_seconds(),
+        "latest": get_latest_gold_item(),
+        "history": history_recent,
+        "jewelry": GLOBAL_CACHE["jewelry_percent"],
+        "shops": GLOBAL_CACHE["shop_data"],
+        "counts": {
+            "history": len(GLOBAL_CACHE["gold_bar_data"]),
+            "jewelry": len(GLOBAL_CACHE["jewelry_percent"]),
+            "shops": len(GLOBAL_CACHE["shop_data"])
+        }
     }
 
 if __name__ == "__main__":

@@ -63,6 +63,15 @@ Returns price data from all 5 supported shops independently.
 `GET /api/percent_jewelry`
 Get 96.5% Gold Ornament prices (Buy/Sell).
 
+### 5. Board Snapshot
+`GET /api/board`
+Returns one cache-friendly snapshot for the main app screen: latest price, recent history, jewelry prices, shop data, counts, `stale`, and `age_seconds`.
+
+### 6. Health Checks
+`GET /health` returns process liveness with `Cache-Control: no-store`.
+
+`GET /ready` returns data readiness and responds with `503` while gold data is not ready.
+
 ---
 
 ## 📦 Installation & Setup
@@ -73,8 +82,18 @@ Get 96.5% Gold Ornament prices (Buy/Sell).
 # 1. Build the image
 docker build -t aurum-thai .
 
-# 2. Run container
-docker run -d -p 8000:8000 --name gold-api aurum-thai
+# 2. Run container with mounted Firebase secret and persistent notification state
+mkdir -p /root/secrets /var/lib/gold-api
+
+docker run -d \
+  --restart unless-stopped \
+  -p 8000:8000 \
+  --name gold-api \
+  -e FIREBASE_CREDENTIALS_PATH=/run/secrets/firebase-service-account.json \
+  -e NOTIFICATION_STATE_FILE=/app/data/notification_state.json \
+  -v /root/secrets/firebase-service-account.json:/run/secrets/firebase-service-account.json:ro \
+  -v /var/lib/gold-api:/app/data \
+  aurum-thai
 ```
 
 ### Option B: Local Development
