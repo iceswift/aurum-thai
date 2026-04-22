@@ -7,6 +7,7 @@ import asyncio
 import datetime
 from typing import Dict, Any, Optional, List
 import os
+import json
 import firebase_admin
 from firebase_admin import credentials, messaging
 from shop import scrape_all_shops
@@ -30,20 +31,53 @@ browser_instance: Optional[Browser] = None
 # 2. FIREBASE & NOTIFICATION CONFIG (กำหนดค่า Firebase และการแจ้งเตือน)
 # ==============================================================================
 # Cache ราคาสุดท้ายเพื่อป้องกันการส่งข้อความซ้ำ
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+STATE_FILE = os.getenv("NOTIFICATION_STATE_FILE", os.path.join(BASE_DIR, "notification_state.json"))
+CRED_PATH = os.getenv("FIREBASE_CREDENTIALS_PATH", os.path.join(BASE_DIR, "firebase-service-account.json"))
+
+def load_notification_state():
+    """โหลดสถานะการแจ้งเตือนจากไฟล์ JSON"""
+    default_state = {
+        "last_gold_bar_sell": None,
+        "last_update_time": None,
+        "last_sent_at": None
+    }
+    try:
+        if os.path.exists(STATE_FILE):
+            with open(STATE_FILE, 'r', encoding='utf-8') as f:
+                state = json.load(f)
+                print(f"✅ [NotifState] Loaded state from {STATE_FILE}")
+                return state
+    except Exception as e:
+        print(f"⚠️ [NotifState] Load failed: {e}")
+    return default_state
+
+def save_notification_state(state):
+    """บันทึกสถานะการแจ้งเตือนลงไฟล์ JSON"""
+    try:
+        with open(STATE_FILE, 'w', encoding='utf-8') as f:
+            json.dump(state, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"⚠️ [NotifState] Save failed: {e}")
+
+# โหลดสถานะเริ่มต้น
+current_state = load_notification_state()
+
 NOTIF_CACHE = {
-    "last_gold_bar_sell": None,
+    "last_gold_bar_sell": current_state.get("last_gold_bar_sell"),
+    "last_update_time": current_state.get("last_update_time"),
+    "last_sent_at": current_state.get("last_sent_at"),
     "topic_name": "gold_price_updates"
 }
 
 # เริ่มต้น Firebase Admin SDK
 try:
-    cred_path = os.path.join(os.path.dirname(__file__), "firebase-service-account.json")
-    if os.path.exists(cred_path):
-        cred = credentials.Certificate(cred_path)
+    if os.path.exists(CRED_PATH):
+        cred = credentials.Certificate(CRED_PATH)
         firebase_admin.initialize_app(cred)
-        print("✅ [Firebase] SDK Initialized Successfully")
+        print(f"✅ [Firebase] SDK Initialized Successfully (Using: {os.path.basename(CRED_PATH)})")
     else:
-        print("⚠️ [Firebase] Warning: firebase-service-account.json not found. Push notifications disabled.")
+        print(f"⚠️ [Firebase] Warning: Credentials not found at {CRED_PATH}. Push notifications disabled.")
 except Exception as e:
     print(f"❌ [Firebase] Initialization Error: {e}")
 
@@ -60,12 +94,30 @@ async def send_push_notification(title: str, body: str, data: Dict[str, str] = N
         )
         response = messaging.send(message)
         print(f"🔔 [Push] Sent Success: {response}")
+        
+        # อัปเดตสถานะการส่งสำเร็จหลังจากส่งจริงเท่านั้น
+        NOTIF_CACHE["last_sent_at"] = get_thai_time().isoformat()
+        save_notification_state({
+            "last_gold_bar_sell": NOTIF_CACHE["last_gold_bar_sell"],
+            "last_update_time": NOTIF_CACHE["last_update_time"],
+            "last_sent_at": NOTIF_CACHE["last_sent_at"]
+        })
     except Exception as e:
         print(f"❌ [Push] Send Error: {e}")
 
 # ==============================================================================
 # 3. HELPER FUNCTIONS
 # ==============================================================================
+def set_public_cache(response: Response, max_age=60, s_maxage=60):
+    """กำหนด Cache-Control header สำหรับ Public API"""
+    # stale-while-revalidate ช่วยให้ user ได้ข้อมูลเร็วขึ้นขณะที่ server อัปเดตข้อมูลเบื้องหลัง
+    swr = 60 if max_age >= 60 else 30
+    response.headers["Cache-Control"] = f"public, max-age={max_age}, s-maxage={s_maxage}, stale-while-revalidate={swr}"
+
+def set_no_store(response: Response):
+    """กำหนดไม่ให้ Cache ข้อมูล (สำหรับข้อมูลสถานะหรือข้อมูลที่ยังไม่พร้อม)"""
+    response.headers["Cache-Control"] = "no-store"
+
 def get_thai_time():
     """แปลงเวลาปัจจุบันเป็นเวลาไทย (UTC+7)"""
     tz = datetime.timezone(datetime.timedelta(hours=7))
@@ -362,7 +414,16 @@ async def update_all_data(scrape_gold: bool = True, scrape_shops: bool = False):
             # ตรวจสอบว่าราคาเปลี่ยนจากครั้งก่อนหรือไม่
             if current_sell and current_sell != NOTIF_CACHE["last_gold_bar_sell"]:
                 old_price = NOTIF_CACHE["last_gold_bar_sell"]
+                
+                # อัปเดต Cache และบันทึก State ทันที
                 NOTIF_CACHE["last_gold_bar_sell"] = current_sell
+                NOTIF_CACHE["last_update_time"] = latest_data.get("time", "")
+                
+                save_notification_state({
+                    "last_gold_bar_sell": NOTIF_CACHE["last_gold_bar_sell"],
+                    "last_update_time": NOTIF_CACHE["last_update_time"],
+                    "last_sent_at": NOTIF_CACHE["last_sent_at"]
+                })
                 
                 # ถ้าไม่ใช่ครั้งแรกที่รัน (old_price ไม่เป็น None) ให้ส่ง Notification
                 if old_price is not None:
@@ -463,14 +524,40 @@ app = FastAPI(lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+@app.get("/health")
+def health_check(response: Response):
+    """Endpoint สำหรับเช็คว่า Process ยังรันอยู่ (Liveness)"""
+    set_no_store(response)
+    return {
+        "status": "ok",
+        "service": "thai-gold-api",
+        "timestamp": get_thai_time().isoformat()
+    }
+
+@app.get("/ready")
+def readiness_check(response: Response):
+    """Endpoint สำหรับเช็คความพร้อมของข้อมูล (Readiness)"""
+    set_no_store(response)
+    has_data = len(GLOBAL_CACHE["gold_bar_data"]) > 0
+    if not has_data:
+        response.status_code = 503
+    
+    return {
+        "status": "ready" if has_data else "not_ready",
+        "has_gold_data": has_data,
+        "source": GLOBAL_CACHE["source_type"],
+        "last_updated": GLOBAL_CACHE["last_updated"],
+        "market_status": GLOBAL_CACHE["market_status"]
+    }
+
 @app.get("/")
 def read_root(response: Response):
-    response.headers["Cache-Control"] = "public, max-age=10, s-maxage=10"
+    set_public_cache(response, max_age=15, s_maxage=30)
     return {
         "message": "Thai Gold Price API (Hybrid Auto-Switch)",
         "source_used": GLOBAL_CACHE["source_type"],
@@ -482,9 +569,10 @@ def read_root(response: Response):
 def get_latest(response: Response):
     data = GLOBAL_CACHE["gold_bar_data"]
     if not data:
+        set_no_store(response)
         return {"status": "waiting_for_data", "market_status": GLOBAL_CACHE["market_status"]}
     
-    response.headers["Cache-Control"] = "public, max-age=60, s-maxage=60"
+    set_public_cache(response, max_age=15, s_maxage=30)
     
     # Logic เลือกข้อมูลล่าสุดตาม Source
     latest_item = {}
@@ -503,9 +591,11 @@ def get_latest(response: Response):
 @app.get("/api/gold")
 def get_gold_buy_only(response: Response):
     data = GLOBAL_CACHE["gold_bar_data"]
-    if not data: return {"status": "waiting_for_data"}
+    if not data: 
+        set_no_store(response)
+        return {"status": "waiting_for_data"}
 
-    response.headers["Cache-Control"] = "public, max-age=60, s-maxage=60"
+    set_public_cache(response, max_age=15, s_maxage=30)
 
     latest = {}
     if GLOBAL_CACHE["source_type"] == "Classic Website":
@@ -523,7 +613,7 @@ def get_gold_buy_only(response: Response):
 
 @app.get("/api/history")
 def get_history(response: Response):
-    response.headers["Cache-Control"] = "public, max-age=60, s-maxage=60"
+    set_public_cache(response, max_age=60, s_maxage=120)
     return {
         "count": len(GLOBAL_CACHE["gold_bar_data"]),
         "source": GLOBAL_CACHE["source_type"],
@@ -533,7 +623,7 @@ def get_history(response: Response):
 
 @app.get("/api/percent_jewelry")
 def get_percent(response: Response):
-    response.headers["Cache-Control"] = "public, max-age=60, s-maxage=60"
+    set_public_cache(response, max_age=60, s_maxage=120)
     return {
         "count": len(GLOBAL_CACHE["jewelry_percent"]),
         "source": GLOBAL_CACHE["source_type"],
@@ -543,7 +633,7 @@ def get_percent(response: Response):
 
 @app.get("/api/shops")
 def get_shops(response: Response):
-    response.headers["Cache-Control"] = "public, max-age=60, s-maxage=60"
+    set_public_cache(response, max_age=60, s_maxage=120)
     return {
         "count": len(GLOBAL_CACHE["shop_data"]),
         "data": GLOBAL_CACHE["shop_data"],

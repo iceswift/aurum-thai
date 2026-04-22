@@ -18,6 +18,16 @@ Dockerfile
 .dockerignore
 docker-compose.yml
 
+# Secrets & Local State
+firebase-service-account.json
+notification_state.json
+.env
+*.env
+
+# Test & Misc
+test_fcm.py
+test_lightpanda.py
+
 # OS
 .DS_Store
 Thumbs.db
