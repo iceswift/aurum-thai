@@ -214,6 +214,9 @@ async def send_snapshot_update_notification(commit: SnapshotCommit) -> None:
         "type": "gold_snapshot_updated",
         "revision": str(commit.revision),
         "updated_at": commit.updated_at or "",
+        # A visible notification is reserved for a real price-data snapshot.
+        # Clients may still handle other data-only events silently.
+        "user_visible": "true",
     }
     try:
         message = messaging.Message(data=payload, topic=NOTIF_CACHE["topic_name"])
@@ -653,7 +656,10 @@ async def run_scheduler(initial_scrape_completed: bool = False):
         is_open, status_msg = is_market_open()
         status_commit = await update_market_status(f"{status_msg} | Shop scraping disabled")
         if status_commit and status_commit.changed:
-            await send_snapshot_update_notification(status_commit)
+            # A status label naturally changes at midnight (for example from
+            # Friday to Saturday). Persist its revision, but do not wake every
+            # subscriber with a price notification when no price changed.
+            print(f"ℹ️ [Snapshot] Market status revision {status_commit.revision} saved without push")
 
         if not is_open:
             next_gold_scrape_at = None
