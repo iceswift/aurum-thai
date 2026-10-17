@@ -1,159 +1,106 @@
-# 🏆 Aurum Thai API (Gold Price Service)
+# Aurum Thai API
 
-[![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=for-the-badge&logo=fastapi)](https://fastapi.tiangolo.com)
-[![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
-[![Playwright](https://img.shields.io/badge/Playwright-45ba4b?style=for-the-badge&logo=Playwright&logoColor=white)](https://playwright.dev/)
-[![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
+Backend API and price scraper for Thai Gold View. The service retrieves Gold Traders Association data during market hours, maintains one revisioned public snapshot, and sends Firebase Cloud Messaging (FCM) events for real price-data changes.
 
-> **The Ultimate Async Gold Price Scraper & API for Thai Gold Markets.**  
-> Fast, Reliable, and Smart. Built for developers who need real-time data.
+## Production architecture
 
----
-
-## 🚀 Features
-
--   **⚡ Hybrid Scheduler (Smart Logic)**:
-    -   **Association Price (Gold Traders)**: Updates every **1 minute** (Only during market hours 09:00 - 17:45).
-    -   **Shop Prices (5 Major Shops)**: Updates every **5 minutes** (Runs **24/7** continuously).
--   **🛡️ Performance Tuned**: 
-    -   Uses **Chromium Headless** with optimized flags (`--disable-gpu`, `--no-zygote`) to minimize memory usage.
-    -   **Resource Blocker**: Automatically blocks Images, Fonts, and CSS to prevent crashes and speed up loading.
--   **🚄 Parallel Execution**: Scrapes 5 major gold shops **simultaneously** using Async/Await & Playwright.
--   **💾 Centralized Cache**: Serves data instantly from memory (Zero Latency for clients).
--   **🐳 Docker Ready**: Deploy anywhere with a single command.
-
----
-
-## 🛍️ Supported Shops
-
-We track 5 major Thai gold traders in real-time:
-
-1.  **Aurora**
-2.  **MTS Gold**
-3.  **Hua Seng Heng** (ฮั่วเซ่งเฮง)
-4.  **Chin Hua Heng** (จินฮั้วเฮง)
-5.  **Ausiris**
-
----
-
-## 🛠️ Tech Stack
-
--   **Core**: Python 3.11+
--   **API Framework**: FastAPI (High performance)
--   **Browser Automation**: Playwright (Async Chromium)
--   **Server**: Uvicorn (ASGI)
-
----
-
-## 🔌 API Endpoints
-
-### 1. System Status
-`GET /`
-Returns API status, source used, and last update time.
-
-### 2. Latest Gold Bar Price
-`GET /api/latest`
-Get the most recent Gold Bar price (96.5%) from Gold Traders Association.
-
-### 3. All Gold Shops Data (✨ New)
-`GET /api/shops`
-Returns price data from all 5 supported shops independently.
-
-### 4. Jewelry / Ornament Prices
-`GET /api/percent_jewelry`
-Get 96.5% Gold Ornament prices (Buy/Sell).
-
-### 5. Board Snapshot
-`GET /api/board`
-Returns one cache-friendly snapshot for the main app screen: latest price, recent history, jewelry prices, shop data, counts, `stale`, and `age_seconds`.
-
-### 6. Health Checks
-`GET /health` returns process liveness with `Cache-Control: no-store`.
-
-`GET /ready` returns data readiness and responds with `503` while gold data is not ready.
-
----
-
-## 📦 Installation & Setup
-
-### Option A: Docker (Recommended)
-
-```bash
-# 1. Build the image
-docker build -t aurum-thai .
-
-# 2. Run container with mounted Firebase secret and persistent notification state
-mkdir -p /root/secrets /var/lib/gold-api
-
-docker run -d \
-  --restart unless-stopped \
-  -p 8000:8000 \
-  --name gold-api \
-  -e CORS_ALLOWED_ORIGINS=https://your-app.example.com,https://www.your-app.example.com \
-  -e FIREBASE_CREDENTIALS_PATH=/run/secrets/firebase-service-account.json \
-  -e NOTIFICATION_STATE_FILE=/app/data/notification_state.json \
-  -v /root/secrets/firebase-service-account.json:/run/secrets/firebase-service-account.json:ro \
-  -v /var/lib/gold-api:/app/data \
-  aurum-thai
+```text
+/srv/thai-gold-view/
+├── app/       # Backend source and Docker Compose definition
+├── data/      # Persistent revision, snapshot, and notification state
+├── secrets/   # Firebase service-account JSON; never commit this directory
+├── web/       # Separate Flutter PWA releases and Nginx configuration
+└── backups/   # Deployment backups
 ```
 
-### Option B: Local Development
+The `gold-api` container binds only to `127.0.0.1:8000`. Cloudflare Tunnel publishes `https://api.thaigoldview.com`.
+
+## API
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /health` | Process liveness and Firebase/CORS diagnostics. |
+| `GET /ready` | Readiness, data age, staleness, and market status. |
+| `GET /api/board` | One consistent revisioned snapshot for the app. |
+| `GET /api/latest`, `/api/history`, `/api/gold` | Current and historical gold data. |
+| `GET /api/percent_jewelry`, `/api/shops` | Jewelry and shop data. |
+| `POST /api/push/subscribe` | Subscribes a Web FCM token to the fixed topic. |
+
+### Board snapshots and ETags
+
+`/api/board` returns one logical snapshot with `revision`, ISO-8601 `updated_at`, `market_status`, `latest`, `history`, `jewelry`, and `shops`. It sets `ETag: W/\"gold-board-<revision>\"`; clients can send `If-None-Match` and receive `304 Not Modified`.
+
+Snapshot state is atomically persisted in `/srv/thai-gold-view/data`, so a container restart does not reset its revision.
+
+## FCM behavior
+
+The topic is `gold_price_updates`. A price-data snapshot change sends a data-only payload:
+
+```json
+{
+  "type": "gold_snapshot_updated",
+  "revision": "541",
+  "updated_at": "2026-10-17T10:05:00+07:00",
+  "user_visible": "true"
+}
+```
+
+The Flutter client fetches `/api/board` as the source of truth. A market-status-only change, including the change at midnight when the day changes, is persisted but does not send FCM. This prevents spurious price notifications.
+
+## Configuration
+
+Copy `.env.example` to `.env` on the server:
+
+```dotenv
+APP_HOST=0.0.0.0
+APP_PORT=8000
+CORS_ALLOWED_ORIGINS=https://thaigoldview.com,https://www.thaigoldview.com
+FIREBASE_CREDENTIALS_PATH=/run/secrets/firebase-service-account.json
+NOTIFICATION_STATE_FILE=/app/data/notification_state.json
+SNAPSHOT_STATE_FILE=/app/data/gold_snapshot_state.json
+FCM_TOPIC_NAME=gold_price_updates
+STALE_AFTER_MINUTES=10
+```
+
+`firebase-service-account.json` belongs in `/srv/thai-gold-view/secrets/` with restricted permissions. Never commit it.
+
+## Local development
 
 ```bash
-# 1. Clone repository
 git clone https://github.com/iceswift/aurum-thai.git
 cd aurum-thai
-
-# 2. Create Virtual Environment
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-
-# 3. Install Dependencies
+python -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 playwright install chromium
-
-# 4. Run Server
 python main.py
 ```
 
-### Environment Variables
+For Docker development, create `.env`, then run `docker compose up --build`.
 
-- `CORS_ALLOWED_ORIGINS`: comma-separated frontend origins. Use `*` only for temporary testing.
-- `FIREBASE_CREDENTIALS_PATH`: file path to Firebase service account JSON.
-- `FIREBASE_CREDENTIALS_JSON`: raw JSON credentials string for providers that store secrets as env vars.
-- `NOTIFICATION_STATE_FILE`: persistent file used to remember the last pushed price.
-- `FCM_TOPIC_NAME`: FCM topic used for broadcast notifications. Default is `gold_price_updates`.
-- `STALE_AFTER_MINUTES`: cache staleness threshold used by readiness and board endpoints.
-- `APP_HOST` / `APP_PORT`: bind host and port for local or container runs.
+## Home server deployment
 
-### VPS Deploy
+Build while the currently running API continues serving requests:
 
-- `docker-compose.yml`: ready-to-run container setup for a VPS
-- `.env.example`: environment template
-- `DEPLOY_VPS.md`: step-by-step deployment guide
-- `deploy/nginx/api.thaigoldview.app.conf`: Nginx reverse proxy example for the API domain
-
----
-
-## 📂 Project Structure
-
-```
-📦 aurum-thai
- ┣ 📜 Dockerfile           # Deployment Config (Railway Ready)
- ┣ 📜 main.py              # API Server & Hybrid Scheduler Logic
- ┣ 📜 shop.py              # Async Scraping Modules (The Core)
- ┣ 📜 requirements.txt     # Python Dependencies
- ┗ 📜 README.md            # This file
+```bash
+cd /srv/thai-gold-view/app
+docker compose build gold-api
+docker compose up -d --no-deps gold-api
+docker compose ps
+docker compose logs --tail=100 gold-api
+curl http://127.0.0.1:8000/health
+curl http://127.0.0.1:8000/ready
 ```
 
----
+Only `gold-api` is recreated. The separate `thai-gold-web` container and Cloudflare Tunnel do not need a restart for an API-only release.
 
-## ⚠️ System Architecture Notes
+## Rollback
 
--   **Memory Optimization**: The system uses `context.close()` aggressively to prevent memory leaks. Browser contexts are destroyed after every scraping cycle.
--   **Ausiris Scraping**: The Ausiris website requires a 15-second load time. Our async engine handles this in the background, so it **does not block** other shops or the API.
--   **Timezone**: All times are reported in **Asia/Bangkok (UTC+7)**.
+Save replaced production source under `/srv/thai-gold-view/backups/<release>/`. Restore it and recreate only the API container:
 
----
-
-Made with ❤️ by **Suwiwat Sinsomboon**
+```bash
+cp /srv/thai-gold-view/backups/<release>/main.py /srv/thai-gold-view/app/main.py
+cd /srv/thai-gold-view/app
+docker compose build gold-api
+docker compose up -d --no-deps gold-api
+```
