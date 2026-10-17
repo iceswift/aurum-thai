@@ -8,4 +8,8 @@ firebase-service-account.json
 google-services.json
 GoogleService-Info.plist
 notification_state.json
+secrets/*.json
+data/*
+!data/.gitkeep
+!secrets/.gitkeep
 test_fcm.py

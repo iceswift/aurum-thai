@@ -89,6 +89,7 @@ docker run -d \
   --restart unless-stopped \
   -p 8000:8000 \
   --name gold-api \
+  -e CORS_ALLOWED_ORIGINS=https://your-app.example.com,https://www.your-app.example.com \
   -e FIREBASE_CREDENTIALS_PATH=/run/secrets/firebase-service-account.json \
   -e NOTIFICATION_STATE_FILE=/app/data/notification_state.json \
   -v /root/secrets/firebase-service-account.json:/run/secrets/firebase-service-account.json:ro \
@@ -114,6 +115,23 @@ playwright install chromium
 # 4. Run Server
 python main.py
 ```
+
+### Environment Variables
+
+- `CORS_ALLOWED_ORIGINS`: comma-separated frontend origins. Use `*` only for temporary testing.
+- `FIREBASE_CREDENTIALS_PATH`: file path to Firebase service account JSON.
+- `FIREBASE_CREDENTIALS_JSON`: raw JSON credentials string for providers that store secrets as env vars.
+- `NOTIFICATION_STATE_FILE`: persistent file used to remember the last pushed price.
+- `FCM_TOPIC_NAME`: FCM topic used for broadcast notifications. Default is `gold_price_updates`.
+- `STALE_AFTER_MINUTES`: cache staleness threshold used by readiness and board endpoints.
+- `APP_HOST` / `APP_PORT`: bind host and port for local or container runs.
+
+### VPS Deploy
+
+- `docker-compose.yml`: ready-to-run container setup for a VPS
+- `.env.example`: environment template
+- `DEPLOY_VPS.md`: step-by-step deployment guide
+- `deploy/nginx/api.thaigoldview.app.conf`: Nginx reverse proxy example for the API domain
 
 ---
 
