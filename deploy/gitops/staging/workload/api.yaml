@@ -1,0 +1,34 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aurum-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aurum-api
+  template:
+    metadata:
+      labels:
+        app: aurum-api
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: api
+          image: aurum-thai:m2
+          imagePullPolicy: Never
+          env:
+            - name: RUN_EMBEDDED_SCRAPER
+              value: "false"
+          ports:
+            - containerPort: 8000
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              memory: 512Mi

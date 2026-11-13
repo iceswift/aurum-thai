@@ -1,0 +1,19 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: aurum-staging
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/iceswift/aurum-thai.git
+    targetRevision: staging/gitops
+    path: deploy/gitops/staging/workload
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: aurum-gitops
+  syncPolicy:
+    automated:
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
