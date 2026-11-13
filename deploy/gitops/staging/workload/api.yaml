@@ -15,8 +15,8 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: api
-          image: ghcr.io/iceswift/aurum-thai@sha256:73167458e08bb52efd7b812653d2244ec7680b80cd683128578d191a0d3469d7
-          imagePullPolicy: IfNotPresent
+          image: aurum-thai:m2
+          imagePullPolicy: Never
           env:
             - name: RUN_EMBEDDED_SCRAPER
               value: "false"
