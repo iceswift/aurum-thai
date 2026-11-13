@@ -44,16 +44,18 @@ If the pod stays Pending, inspect the PVC and StorageClass. If the pod runs but
 does not become ready, inspect its logs and verify it can reach the source
 website; the readiness probe requires a populated snapshot.
 
+## Staging verification (2026-11-13)
+
+A fresh namespace and empty PVC on `kind-aurum-staging` reached readiness
+without seeded data. The scraper found 20 live price rows and persisted
+revision 1. The Service returned HTTP 200 for readiness and the board, and
+HTTP 304 with an empty body for a matching ETag.
+
+After a rollout restart, the replacement pod served revision 1 from the PVC
+even though the upstream navigation failed on that startup. Readiness and
+conditional GET checks passed again. Firebase was disabled in staging.
+
 ## Next milestones
-
-### Staging verification (2026-11-13)
-
-On the local `kind-aurum-staging` cluster, the PVC bound and the deployment
-became ready after seeding a snapshot from the public board API. The Service
-returned HTTP 200 for readiness and the board, and HTTP 304 with an empty
-body for a matching ETag. A replacement pod restored revision 1 from the PVC.
-Live scraping from an empty volume did not populate the snapshot: the source
-page returned no usable gold price rows during the initial scrape.
 
 1. **Split the runtime.** Extract a one-shot scraper command that checks
    Bangkok market hours, and disable scraping in the API process. Move the
