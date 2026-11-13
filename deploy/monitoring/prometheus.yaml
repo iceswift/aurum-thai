@@ -1,0 +1,10 @@
+global:
+  scrape_interval: 5s
+scrape_configs:
+  - job_name: aurum-api
+    static_configs:
+      - targets: ["aurum-m3-api:8000"]
+  - job_name: pushgateway
+    honor_labels: true
+    static_configs:
+      - targets: ["aurum-m3-gateway:9091"]

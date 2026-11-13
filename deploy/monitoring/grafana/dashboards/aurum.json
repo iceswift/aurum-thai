@@ -1,0 +1,11 @@
+{
+  "uid": "aurum-staging",
+  "title": "Aurum Thai Staging",
+  "schemaVersion": 39,
+  "panels": [
+    {"id": 1, "title": "HTTP requests by status", "type": "timeseries", "gridPos": {"x":0,"y":0,"w":12,"h":8}, "targets": [{"refId":"A","expr":"sum by (status) (rate(aurum_http_requests_total[5m]))"}]},
+    {"id": 2, "title": "HTTP latency p95 (seconds)", "type": "timeseries", "gridPos": {"x":12,"y":0,"w":12,"h":8}, "targets": [{"refId":"A","expr":"histogram_quantile(0.95, sum by (le) (rate(aurum_http_request_duration_seconds_bucket[5m])))"}]},
+    {"id": 3, "title": "Last worker duration and exit code", "type": "timeseries", "gridPos": {"x":0,"y":8,"w":12,"h":8}, "targets": [{"refId":"A","expr":"aurum_worker_duration_seconds"},{"refId":"B","expr":"aurum_worker_exit_code"}]},
+    {"id": 4, "title": "Worker memory peaks (bytes)", "type": "timeseries", "gridPos": {"x":12,"y":8,"w":12,"h":8}, "targets": [{"refId":"A","expr":"aurum_worker_python_peak_rss_bytes"},{"refId":"B","expr":"aurum_worker_container_peak_bytes"}]}
+  ]
+}

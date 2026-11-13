@@ -3,3 +3,4 @@ uvicorn
 playwright==1.57.0
 firebase-admin
 psycopg[binary]>=3.2,<4
+prometheus-client>=0.21,<1

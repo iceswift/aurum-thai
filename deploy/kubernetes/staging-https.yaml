@@ -1,0 +1,53 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aurum-https
+data:
+  default.conf: |
+    server {
+      listen 8443 ssl;
+      server_name aurum-staging.local;
+      ssl_certificate /tls/tls.crt;
+      ssl_certificate_key /tls/tls.key;
+      location = /metrics { return 404; }
+      location / {
+        proxy_pass http://aurum-api:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aurum-https
+spec:
+  selector:
+    matchLabels: {app: aurum-https}
+  template:
+    metadata:
+      labels: {app: aurum-https}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: nginx
+          image: nginx:1.27-alpine
+          ports:
+            - containerPort: 8443
+          volumeMounts:
+            - {name: config, mountPath: /etc/nginx/conf.d, readOnly: true}
+            - {name: tls, mountPath: /tls, readOnly: true}
+      volumes:
+        - name: config
+          configMap: {name: aurum-https}
+        - name: tls
+          secret: {secretName: aurum-staging-tls}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aurum-https
+spec:
+  selector: {app: aurum-https}
+  ports:
+    - {port: 8443, targetPort: 8443}
