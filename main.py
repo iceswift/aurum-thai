@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from contextlib import asynccontextmanager
@@ -13,7 +13,7 @@ import json
 import firebase_admin
 from firebase_admin import credentials, messaging
 from shop import scrape_all_shops
-from snapshot_state import SnapshotCommit, SnapshotStore, build_board_snapshot
+from snapshot_state import PostgresSnapshotStore, SnapshotCommit, SnapshotStore, build_board_snapshot
 
 # ==============================================================================
 # 1. CENTRAL DATA STORE (กองกลางเก็บข้อมูล)
@@ -44,10 +44,15 @@ FCM_TOPIC_NAME = os.getenv("FCM_TOPIC_NAME", "gold_price_updates")
 FCM_SEND_TIMEOUT_SECONDS = int(os.getenv("FCM_SEND_TIMEOUT_SECONDS", "15"))
 APP_HOST = os.getenv("APP_HOST", "0.0.0.0")
 APP_PORT = int(os.getenv("APP_PORT", "8000"))
+RUN_EMBEDDED_SCRAPER = os.getenv("RUN_EMBEDDED_SCRAPER", "true").lower() == "true"
 SNAPSHOT_STATE_FILE = os.getenv(
     "SNAPSHOT_STATE_FILE", os.path.join(os.path.dirname(STATE_FILE), "gold_snapshot_state.json")
 )
-SNAPSHOT_STORE = SnapshotStore(SNAPSHOT_STATE_FILE)
+SNAPSHOT_DATABASE_URL = os.getenv("SNAPSHOT_DATABASE_URL")
+SNAPSHOT_STORE = (
+    PostgresSnapshotStore(SNAPSHOT_DATABASE_URL)
+    if SNAPSHOT_DATABASE_URL else SnapshotStore(SNAPSHOT_STATE_FILE)
+)
 SNAPSHOT_UPDATE_LOCK = asyncio.Lock()
 SNAPSHOT_REVISION = 0
 SNAPSHOT_UPDATED_AT: Optional[str] = None
@@ -81,7 +86,23 @@ def restore_snapshot_state() -> None:
     print(f"✅ [SnapshotState] Restored revision {SNAPSHOT_REVISION} from {SNAPSHOT_STATE_FILE}")
 
 
-restore_snapshot_state()
+if not SNAPSHOT_DATABASE_URL:
+    restore_snapshot_state()
+
+
+def read_snapshot_state():
+    if SNAPSHOT_DATABASE_URL:
+        try:
+            return SNAPSHOT_STORE.load() or {}
+        except Exception as error:
+            raise HTTPException(status_code=503, detail="Snapshot store unavailable") from error
+    return {
+        "snapshot": CURRENT_BOARD_SNAPSHOT,
+        "revision": SNAPSHOT_REVISION,
+        "updated_at": SNAPSHOT_UPDATED_AT,
+        "cache": GLOBAL_CACHE,
+        "last_checked_at": GLOBAL_CACHE.get("last_checked_at"),
+    }
 
 
 def parse_allowed_origins() -> List[str]:
@@ -250,16 +271,19 @@ def set_no_store(response: Response):
     """กำหนดไม่ให้ Cache ข้อมูล (สำหรับข้อมูลสถานะหรือข้อมูลที่ยังไม่พร้อม)"""
     response.headers["Cache-Control"] = "no-store"
 
-def get_latest_gold_item():
-    data = GLOBAL_CACHE["gold_bar_data"]
+def get_latest_gold_item(cache=None):
+    cache = GLOBAL_CACHE if cache is None else cache
+    data = cache.get("gold_bar_data", [])
     if not data:
         return {}
-    if GLOBAL_CACHE["source_type"] == "Classic Website":
+    if cache.get("source_type") == "Classic Website":
         return data[0]
     return data[-1]
 
-def get_cache_age_seconds():
-    last_checked_at = GLOBAL_CACHE.get("last_checked_at") or GLOBAL_CACHE.get("last_updated")
+def get_cache_age_seconds(state=None):
+    if state is None:
+        state = GLOBAL_CACHE
+    last_checked_at = state.get("last_checked_at") or state.get("last_updated") or state.get("updated_at")
     if not last_checked_at:
         return None
     try:
@@ -301,13 +325,15 @@ async def update_market_status(status: str) -> Optional[SnapshotCommit]:
     GLOBAL_CACHE["market_status"] = status
     return await commit_snapshot_if_changed()
 
-def is_data_stale():
-    if not GLOBAL_CACHE["gold_bar_data"]:
+def is_data_stale(state=None):
+    if state is None:
+        state = {"cache": GLOBAL_CACHE, **GLOBAL_CACHE}
+    if not state.get("cache", {}).get("gold_bar_data"):
         return True
     market_open, _ = is_market_open()
     if not market_open:
         return False
-    age_seconds = get_cache_age_seconds()
+    age_seconds = get_cache_age_seconds(state)
     if age_seconds is None:
         return True
     return age_seconds > STALE_AFTER_MINUTES * 60
@@ -605,7 +631,9 @@ async def update_all_data(scrape_gold: bool = True, scrape_shops: bool = False) 
                 price_changed = bool(previous_latest) and previous_latest != get_latest_gold_item()
 
             commit = await commit_snapshot_if_changed()
-            if commit and commit.changed:
+            if commit is None:
+                gold_scrape_succeeded = False
+            elif commit.changed:
                 await send_snapshot_update_notification(commit)
     
     except Exception as e:
@@ -733,7 +761,13 @@ async def lifespan(app: FastAPI):
         # เริ่ม Scheduler หลังจาก Initial Scrape เสร็จ
         asyncio.create_task(run_scheduler(initial_scrape_completed=True))
 
-    asyncio.create_task(initial_startup())
+    if SNAPSHOT_DATABASE_URL:
+        if RUN_EMBEDDED_SCRAPER:
+            raise RuntimeError("Set RUN_EMBEDDED_SCRAPER=false when using PostgreSQL")
+        await asyncio.to_thread(SNAPSHOT_STORE.initialize)
+
+    if RUN_EMBEDDED_SCRAPER:
+        asyncio.create_task(initial_startup())
     
     yield
     
@@ -770,107 +804,115 @@ def health_check(response: Response):
 def readiness_check(response: Response):
     """Endpoint สำหรับเช็คความพร้อมของข้อมูล (Readiness)"""
     set_no_store(response)
-    has_data = len(GLOBAL_CACHE["gold_bar_data"]) > 0
+    state = read_snapshot_state()
+    cache = state.get("cache", {})
+    has_data = bool(cache.get("gold_bar_data"))
     if not has_data:
         response.status_code = 503
     
     return {
         "status": "ready" if has_data else "not_ready",
         "has_gold_data": has_data,
-        "stale": is_data_stale(),
-        "age_seconds": get_cache_age_seconds(),
-        "source": GLOBAL_CACHE["source_type"],
-        "last_updated": GLOBAL_CACHE["last_updated"],
-        "market_status": GLOBAL_CACHE["market_status"],
+        "stale": is_data_stale(state),
+        "age_seconds": get_cache_age_seconds(state),
+        "source": cache.get("source_type", "None"),
+        "last_updated": state.get("updated_at"),
+        "market_status": cache.get("market_status", "Initializing..."),
         "firebase_enabled": FIREBASE_ENABLED,
         "firebase_status": FIREBASE_STATUS
     }
 
 @app.get("/")
-def read_root(response: Response):
+def read_root(response: Response, state=Depends(read_snapshot_state)):
+    cache = state.get("cache", {})
     set_public_cache(response, max_age=15, s_maxage=30)
     return {
         "message": "Thai Gold Price API (Hybrid Auto-Switch)",
-        "source_used": GLOBAL_CACHE["source_type"],
-        "market_status": GLOBAL_CACHE["market_status"],
-        "stale": is_data_stale(),
-        "age_seconds": get_cache_age_seconds(),
-        "last_updated": GLOBAL_CACHE["last_updated"]
+        "source_used": cache.get("source_type", "None"),
+        "market_status": cache.get("market_status", "Initializing..."),
+        "stale": is_data_stale(state),
+        "age_seconds": get_cache_age_seconds(state),
+        "last_updated": state.get("updated_at")
     }
 
 @app.get("/api/latest")
-def get_latest(response: Response):
-    data = GLOBAL_CACHE["gold_bar_data"]
+def get_latest(response: Response, state=Depends(read_snapshot_state)):
+    cache = state.get("cache", {})
+    data = cache.get("gold_bar_data", [])
     if not data:
         set_no_store(response)
-        return {"status": "waiting_for_data", "market_status": GLOBAL_CACHE["market_status"]}
+        return {"status": "waiting_for_data", "market_status": cache.get("market_status", "Initializing...")}
     
     set_public_cache(response, max_age=15, s_maxage=30)
     
     # Logic เลือกข้อมูลล่าสุดตาม Source
     return {
         "status": "success",
-        "source": GLOBAL_CACHE["source_type"],
-        "data": get_latest_gold_item(),
-        "stale": is_data_stale(),
-        "age_seconds": get_cache_age_seconds(),
-        "updated_at": GLOBAL_CACHE["last_updated"]
+        "source": cache.get("source_type", "None"),
+        "data": get_latest_gold_item(cache),
+        "stale": is_data_stale(state),
+        "age_seconds": get_cache_age_seconds(state),
+        "updated_at": state.get("updated_at")
     }
 
 @app.get("/api/gold")
-def get_gold_buy_only(response: Response):
-    data = GLOBAL_CACHE["gold_bar_data"]
+def get_gold_buy_only(response: Response, state=Depends(read_snapshot_state)):
+    cache = state.get("cache", {})
+    data = cache.get("gold_bar_data", [])
     if not data: 
         set_no_store(response)
         return {"status": "waiting_for_data"}
 
     set_public_cache(response, max_age=15, s_maxage=30)
 
-    latest = get_latest_gold_item()
+    latest = get_latest_gold_item(cache)
 
     return {
         "status": "success",
-        "source": GLOBAL_CACHE["source_type"],
+        "source": cache.get("source_type", "None"),
         "bullion_buy": latest.get("bullion_buy"),
         "ornament_buy": latest.get("ornament_buy"),
-        "stale": is_data_stale(),
-        "age_seconds": get_cache_age_seconds(),
-        "updated_at": GLOBAL_CACHE["last_updated"]
+        "stale": is_data_stale(state),
+        "age_seconds": get_cache_age_seconds(state),
+        "updated_at": state.get("updated_at")
     }
 
 @app.get("/api/history")
-def get_history(response: Response):
+def get_history(response: Response, state=Depends(read_snapshot_state)):
+    cache = state.get("cache", {})
     set_public_cache(response, max_age=60, s_maxage=120)
     return {
-        "count": len(GLOBAL_CACHE["gold_bar_data"]),
-        "source": GLOBAL_CACHE["source_type"],
-        "data": GLOBAL_CACHE["gold_bar_data"],
-        "stale": is_data_stale(),
-        "age_seconds": get_cache_age_seconds(),
-        "updated_at": GLOBAL_CACHE["last_updated"]
+        "count": len(cache.get("gold_bar_data", [])),
+        "source": cache.get("source_type", "None"),
+        "data": cache.get("gold_bar_data", []),
+        "stale": is_data_stale(state),
+        "age_seconds": get_cache_age_seconds(state),
+        "updated_at": state.get("updated_at")
     }
 
 @app.get("/api/percent_jewelry")
-def get_percent(response: Response):
+def get_percent(response: Response, state=Depends(read_snapshot_state)):
+    cache = state.get("cache", {})
     set_public_cache(response, max_age=60, s_maxage=120)
     return {
-        "count": len(GLOBAL_CACHE["jewelry_percent"]),
-        "source": GLOBAL_CACHE["source_type"],
-        "data": GLOBAL_CACHE["jewelry_percent"],
-        "stale": is_data_stale(),
-        "age_seconds": get_cache_age_seconds(),
-        "updated_at": GLOBAL_CACHE["last_updated"]
+        "count": len(cache.get("jewelry_percent", [])),
+        "source": cache.get("source_type", "None"),
+        "data": cache.get("jewelry_percent", []),
+        "stale": is_data_stale(state),
+        "age_seconds": get_cache_age_seconds(state),
+        "updated_at": state.get("updated_at")
     }
 
 @app.get("/api/shops")
-def get_shops(response: Response):
+def get_shops(response: Response, state=Depends(read_snapshot_state)):
+    cache = state.get("cache", {})
     set_public_cache(response, max_age=60, s_maxage=120)
     return {
-        "count": len(GLOBAL_CACHE["shop_data"]),
-        "data": GLOBAL_CACHE["shop_data"],
-        "stale": is_data_stale(),
-        "age_seconds": get_cache_age_seconds(),
-        "updated_at": GLOBAL_CACHE["last_updated"]
+        "count": len(cache.get("shop_data", [])),
+        "data": cache.get("shop_data", []),
+        "stale": is_data_stale(state),
+        "age_seconds": get_cache_age_seconds(state),
+        "updated_at": state.get("updated_at")
     }
 
 
@@ -911,10 +953,10 @@ async def subscribe_web_push(subscription: PushSubscriptionRequest, response: Re
     return {"status": "subscribed", "topic": FCM_TOPIC_NAME, "platform": "web"}
 
 
-def get_board_etag() -> Optional[str]:
-    if SNAPSHOT_REVISION <= 0:
+def get_board_etag(revision: int) -> Optional[str]:
+    if revision <= 0:
         return None
-    return f'W/"gold-board-{SNAPSHOT_REVISION}"'
+    return f'W/"gold-board-{revision}"'
 
 
 def etag_matches(if_none_match: Optional[str], etag: str) -> bool:
@@ -927,12 +969,14 @@ def etag_matches(if_none_match: Optional[str], etag: str) -> bool:
 
 @app.get("/api/board")
 def get_board(request: Request, response: Response):
-    snapshot = CURRENT_BOARD_SNAPSHOT
+    state = read_snapshot_state()
+    snapshot = state.get("snapshot")
     if not snapshot:
         set_no_store(response)
-        return {"status": "waiting_for_data", "market_status": GLOBAL_CACHE["market_status"]}
+        return {"status": "waiting_for_data", "market_status": state.get("cache", {}).get("market_status", "Initializing...")}
 
-    etag = get_board_etag()
+    revision = state.get("revision", 0)
+    etag = get_board_etag(revision)
     cache_control = "private, no-cache, must-revalidate"
     if etag and etag_matches(request.headers.get("if-none-match"), etag):
         return Response(status_code=304, headers={"ETag": etag, "Cache-Control": cache_control})
@@ -943,12 +987,12 @@ def get_board(request: Request, response: Response):
 
     return {
         "status": "ok",
-        "revision": SNAPSHOT_REVISION,
+        "revision": revision,
         "source": snapshot["source"],
         "market_status": snapshot["market_status"],
-        "updated_at": SNAPSHOT_UPDATED_AT,
-        "stale": is_data_stale(),
-        "age_seconds": get_cache_age_seconds(),
+        "updated_at": state.get("updated_at"),
+        "stale": is_data_stale(state),
+        "age_seconds": get_cache_age_seconds(state),
         "latest": snapshot["latest"],
         "history": snapshot["history"],
         "jewelry": snapshot["jewelry"],
