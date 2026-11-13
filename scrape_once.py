@@ -3,6 +3,7 @@
 import asyncio
 import os
 import time
+from pathlib import Path
 
 from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
 
@@ -49,6 +50,12 @@ if __name__ == "__main__":
                 )
             except ImportError:
                 pass
+            try:
+                peak = int(Path("/sys/fs/cgroup/memory.peak").read_text().strip())
+            except (OSError, ValueError):
+                pass
+            else:
+                Gauge("aurum_worker_container_peak_bytes", "Worker cgroup v2 memory peak including Chromium", registry=registry).set(peak)
             try:
                 push_to_gateway(gateway, job="aurum-scraper", registry=registry, timeout=5)
             except Exception as error:

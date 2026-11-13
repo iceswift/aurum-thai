@@ -70,8 +70,12 @@ Set `METRICS_ENABLED=true` on the API and scrape `/metrics` on each pod for requ
 latency. Keep this endpoint internal. To collect short-lived worker metrics,
 deploy `staging-pushgateway.yaml`, set `METRICS_PUSHGATEWAY` to its internal
 URL, and have Prometheus scrape the gateway with `honor_labels: true`.
-These gauges record the last worker run; Python peak RSS excludes Chromium
-child processes. Use container memory telemetry to measure the whole worker.
+These gauges record the last worker run. Python peak RSS excludes Chromium
+child processes; `aurum_worker_container_peak_bytes` uses cgroup v2
+`memory.peak` to cover the full worker container when available.
+
+The local [monitoring lab](../monitoring/README.md) includes a provisioned
+Grafana dashboard and the verification results.
 
 Apply `staging-hpa.yaml` only to the split API, with CPU requests and a working
 Metrics Server. The HPA uses Kubernetes CPU metrics, not the Prometheus
