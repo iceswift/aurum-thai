@@ -1,10 +1,25 @@
 apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: aurum-staging
+  namespace: argocd
+spec:
+  sourceRepos:
+    - https://github.com/iceswift/aurum-thai.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: aurum-gitops
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+---
+apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: aurum-staging
   namespace: argocd
 spec:
-  project: default
+  project: aurum-staging
   source:
     repoURL: https://github.com/iceswift/aurum-thai.git
     targetRevision: staging/gitops
