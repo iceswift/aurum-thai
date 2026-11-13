@@ -57,6 +57,26 @@ conditional GET checks passed again. Firebase was disabled in staging.
 
 ## Next milestones
 
+### Staging HTTPS, secrets, and metrics
+
+The optional staging HTTPS proxy uses an externally created TLS Secret
+(`aurum-staging-tls`) and routes to the `aurum-api` Service. Keep the TLS key
+and database URL out of Git. If Firebase is enabled in an environment, mount
+its service-account file read-only from a separately provisioned Secret and
+set `FIREBASE_CREDENTIALS_PATH` to that path. Use no production Firebase
+credentials on kind.
+
+Set `METRICS_ENABLED=true` on the API and scrape `/metrics` on each pod for request counts by status and request
+latency. Keep this endpoint internal. To collect short-lived worker metrics,
+deploy `staging-pushgateway.yaml`, set `METRICS_PUSHGATEWAY` to its internal
+URL, and have Prometheus scrape the gateway with `honor_labels: true`.
+These gauges record the last worker run; Python peak RSS excludes Chromium
+child processes. Use container memory telemetry to measure the whole worker.
+
+Apply `staging-hpa.yaml` only to the split API, with CPU requests and a working
+Metrics Server. The HPA uses Kubernetes CPU metrics, not the Prometheus
+endpoint. Do not apply it to the embedded scraper deployment.
+
 ### Split runtime development
 
 `RUN_EMBEDDED_SCRAPER=false` starts the HTTP API without starting Chromium or

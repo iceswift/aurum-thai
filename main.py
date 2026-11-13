@@ -14,6 +14,8 @@ import firebase_admin
 from firebase_admin import credentials, messaging
 from shop import scrape_all_shops
 from snapshot_state import PostgresSnapshotStore, SnapshotCommit, SnapshotStore, build_board_snapshot
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
+from time import perf_counter
 
 # ==============================================================================
 # 1. CENTRAL DATA STORE (กองกลางเก็บข้อมูล)
@@ -45,6 +47,7 @@ FCM_SEND_TIMEOUT_SECONDS = int(os.getenv("FCM_SEND_TIMEOUT_SECONDS", "15"))
 APP_HOST = os.getenv("APP_HOST", "0.0.0.0")
 APP_PORT = int(os.getenv("APP_PORT", "8000"))
 RUN_EMBEDDED_SCRAPER = os.getenv("RUN_EMBEDDED_SCRAPER", "true").lower() == "true"
+METRICS_ENABLED = os.getenv("METRICS_ENABLED", "false").lower() == "true"
 SNAPSHOT_STATE_FILE = os.getenv(
     "SNAPSHOT_STATE_FILE", os.path.join(os.path.dirname(STATE_FILE), "gold_snapshot_state.json")
 )
@@ -775,6 +778,31 @@ async def lifespan(app: FastAPI):
     await stop_browser()
 
 app = FastAPI(lifespan=lifespan)
+
+HTTP_REQUESTS = Counter("aurum_http_requests_total", "HTTP requests", ["method", "route", "status"])
+HTTP_DURATION = Histogram("aurum_http_request_duration_seconds", "HTTP latency", ["method", "route"])
+
+
+@app.middleware("http")
+async def record_http_metrics(request: Request, call_next):
+    started = perf_counter()
+    status = 500
+    try:
+        response = await call_next(request)
+        status = response.status_code
+        return response
+    finally:
+        if METRICS_ENABLED and request.url.path != "/metrics":
+            route = getattr(request.scope.get("route"), "path", "unmatched")
+            HTTP_REQUESTS.labels(request.method, route, str(status)).inc()
+            HTTP_DURATION.labels(request.method, route).observe(perf_counter() - started)
+
+
+@app.get("/metrics", include_in_schema=False)
+def metrics():
+    if not METRICS_ENABLED:
+        raise HTTPException(status_code=404)
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 # Allow CORS for PWA and Web Apps
 app.add_middleware(

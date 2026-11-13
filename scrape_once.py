@@ -1,6 +1,10 @@
 """Run one market-aware scrape for an external scheduler."""
 
 import asyncio
+import os
+import time
+
+from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
 
 import main
 
@@ -25,4 +29,28 @@ async def run() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(asyncio.run(run()))
+    started = time.monotonic()
+    code = 1
+    try:
+        code = asyncio.run(run())
+    finally:
+        gateway = os.getenv("METRICS_PUSHGATEWAY")
+        if gateway:
+            registry = CollectorRegistry()
+            Gauge("aurum_worker_duration_seconds", "Duration of the last worker run", registry=registry).set(
+                time.monotonic() - started
+            )
+            Gauge("aurum_worker_exit_code", "Exit code of the last worker run", registry=registry).set(code)
+            try:
+                import resource
+
+                Gauge("aurum_worker_python_peak_rss_bytes", "Worker Python process peak RSS on Linux", registry=registry).set(
+                    resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024
+                )
+            except ImportError:
+                pass
+            try:
+                push_to_gateway(gateway, job="aurum-scraper", registry=registry, timeout=5)
+            except Exception as error:
+                print(f"[Worker] Metrics push failed: {type(error).__name__}")
+    raise SystemExit(code)
