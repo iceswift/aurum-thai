@@ -69,6 +69,20 @@ matched after import and export at revision 1028; a subsequent write reached
 1029, and the file-backed API restored 1029 and its ETag on startup. Both
 destination overwrite attempts were rejected.
 
+## Production state backup and restore check
+
+On 2026-11-13, both the live snapshot and notification state were copied
+to a restricted backup directory on the home server. Both SHA-256
+checksums passed. A separate container using the running production
+image, a read-only backup mount, no network, and no Firebase credentials
+restored revision 1028, verified its ETag and snapshot consistency, and
+loaded the notification state. Production was not restarted.
+
+The two files were copied separately while production was running. This
+checks recoverability of each file, not a coordinated cutover checkpoint.
+Before cutover, stop writers, repeat the backup, and keep an encrypted
+copy off-host. This rehearsal does not test loss of the home-server disk.
+
 ## Isolated FCM smoke check
 
 Point a test client at the staging API and configure it with a separate
@@ -79,6 +93,6 @@ device test. The helper sends to one token, never to a topic, and rejects
 the production project. Verify notification receipt and board refresh on the
 device; FCM acceptance alone does not prove delivery.
 
-**Production decision: NO-GO.** State transfer was verified locally.
-Production storage and backups still need verification, and isolated
-end-to-end FCM is pending a test project and registered device.
+**Production decision: NO-GO.** State transfer and on-host backup recovery
+were verified. A coordinated cutover backup, off-host recovery, and
+isolated end-to-end FCM are pending.
