@@ -379,10 +379,12 @@ async def scrape_new_version(page: Page) -> Dict[str, Any]:
     print("   👉 Trying New Version Logic...")
     # Timeout 15s -> 60s (เผื่อเว็บช้ามาก)
     await page.goto("https://www.goldtraders.or.th/updatepricelist", timeout=60000)
-    # Timeout 5s -> 30s
-    # NEW LOGIC: รอจนกว่าจะมีข้อมูลมากกว่า 2 แถว (Header + Data) ป้องกันการดึงว่าง
+    # Wait for a row matching the parser's expected price columns.
     try:
-        await page.wait_for_function("document.querySelectorAll('table tbody tr').length > 2", timeout=30000)
+        await page.wait_for_function(
+            "Array.from(document.querySelectorAll('table tbody tr')).some(row => row.cells.length >= 10)",
+            timeout=30000,
+        )
     except:
         print("   ⚠️ Wait Timeout: Table rows did not load in time.") 
 
@@ -716,12 +718,17 @@ async def lifespan(app: FastAPI):
         print("⏳ Incoming: Initial Scrape (Background)...")
         is_open, status_msg = is_market_open()
         GLOBAL_CACHE["market_status"] = f"{status_msg} | Shop scraping disabled"
-        await start_browser()
-        
-        # Force Scrape: บังคับดึงข้อมูล 1 รอบตอนเปิด Server เสมอ (ไม่สนตลาดเปิด/ปิด)
-        # เพื่อให้มีข้อมูลใน Cache ไปแสดงผล (จะได้ไม่ขึ้น waiting_for_data)
-        await update_all_data(scrape_gold=True, scrape_shops=False)
-        await stop_browser()
+        # Retry a cold start only when there is no cached snapshot to serve.
+        for attempt in range(3):
+            await start_browser()
+            try:
+                await update_all_data(scrape_gold=True, scrape_shops=False)
+            finally:
+                await stop_browser()
+            if GLOBAL_CACHE["gold_bar_data"] or attempt == 2:
+                break
+            print(f"[Startup] No gold data yet; retrying in {5 * (attempt + 1)} seconds")
+            await asyncio.sleep(5 * (attempt + 1))
         
         # เริ่ม Scheduler หลังจาก Initial Scrape เสร็จ
         asyncio.create_task(run_scheduler(initial_scrape_completed=True))
