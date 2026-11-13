@@ -53,6 +53,23 @@ This is a periodically scraped data service, not a streaming market feed. The cu
 
 ## Production architecture
 
+### Kubernetes migration case study
+
+The live API runs on Docker Compose. An isolated kind environment was used
+to verify the Kubernetes migration before considering a production cutover.
+
+| Area | Verified result |
+| --- | --- |
+| Runtime split | A CronJob-derived worker wrote to PostgreSQL; two API instances agreed on revisions and ETags. |
+| GitOps | Argo CD deployed a GHCR image by digest and restored the prior image after a Git revert. |
+| Operations | Staging HTTPS passed certificate verification, and CPU load scaled the API from one to three ready pods. |
+| Monitoring | Prometheus scraped API and worker metrics, and Grafana queried both. A live worker run peaked at 583 MiB for the full container. |
+| Migration rehearsal | Eight read endpoints matched the production contract. Snapshot export preserved the advanced revision for Compose rollback. |
+
+See the [readiness runbook](deploy/kubernetes/PRODUCTION_READINESS.md) and
+[migration roadmap](https://github.com/iceswift/aurum-thai/issues/9) for
+the evidence and the remaining production gates.
+
 See the [Kubernetes staging and migration guide](deploy/kubernetes/README.md)
 for the separate Kubernetes baseline and GitOps roadmap.
 

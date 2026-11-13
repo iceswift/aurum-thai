@@ -80,6 +80,10 @@ loaded the notification state. Production was not restarted.
 
 The two files were copied separately while production was running. This
 checks recoverability of each file, not a coordinated cutover checkpoint.
+An off-host copy was also encrypted with Windows DPAPI (current-user scope).
+Decrypting both files on that workstation reproduced the original checksums
+and recovered revision 1028 and notification state. Recovery depends on that
+Windows account and profile; portability to a new workstation was not tested.
 Before cutover, stop writers, repeat the backup, and keep an encrypted
 copy off-host. This rehearsal does not test loss of the home-server disk.
 
@@ -93,6 +97,6 @@ device test. The helper sends to one token, never to a topic, and rejects
 the production project. Verify notification receipt and board refresh on the
 device; FCM acceptance alone does not prove delivery.
 
-**Production decision: NO-GO.** State transfer and on-host backup recovery
-were verified. A coordinated cutover backup, off-host recovery, and
-isolated end-to-end FCM are pending.
+**Production decision: NO-GO.** State transfer and on-host and off-host
+backup recovery were verified. A coordinated cutover backup and isolated
+end-to-end FCM are pending.
