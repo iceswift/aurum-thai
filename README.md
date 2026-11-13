@@ -53,6 +53,9 @@ This is a periodically scraped data service, not a streaming market feed. The cu
 
 ## Production architecture
 
+See the [Kubernetes staging and migration guide](deploy/kubernetes/README.md)
+for the separate Kubernetes baseline and GitOps roadmap.
+
 ```text
 /srv/thai-gold-view/
 ├── app/       # Backend source and Docker Compose definition
