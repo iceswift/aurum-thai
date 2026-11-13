@@ -57,6 +57,15 @@ conditional GET checks passed again. Firebase was disabled in staging.
 
 ## Next milestones
 
+### Split runtime development
+
+`RUN_EMBEDDED_SCRAPER=false` starts the HTTP API without starting Chromium or
+the scheduler. `python -m scrape_once` runs a single market-hours check and
+scrape, exits successfully when the market is closed, and returns a nonzero
+exit code on scrape failure. Existing deployments keep the embedded scheduler
+by default. The file-backed API loads the snapshot at startup; keep the M1
+deployment in embedded mode until the shared store and live reads are in place.
+
 1. **Split the runtime.** Extract a one-shot scraper command that checks
    Bangkok market hours, and disable scraping in the API process. Move the
    snapshot into a shared transactional store (proposed: PostgreSQL). Keep

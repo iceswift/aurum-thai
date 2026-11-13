@@ -44,6 +44,7 @@ FCM_TOPIC_NAME = os.getenv("FCM_TOPIC_NAME", "gold_price_updates")
 FCM_SEND_TIMEOUT_SECONDS = int(os.getenv("FCM_SEND_TIMEOUT_SECONDS", "15"))
 APP_HOST = os.getenv("APP_HOST", "0.0.0.0")
 APP_PORT = int(os.getenv("APP_PORT", "8000"))
+RUN_EMBEDDED_SCRAPER = os.getenv("RUN_EMBEDDED_SCRAPER", "true").lower() == "true"
 SNAPSHOT_STATE_FILE = os.getenv(
     "SNAPSHOT_STATE_FILE", os.path.join(os.path.dirname(STATE_FILE), "gold_snapshot_state.json")
 )
@@ -605,7 +606,9 @@ async def update_all_data(scrape_gold: bool = True, scrape_shops: bool = False) 
                 price_changed = bool(previous_latest) and previous_latest != get_latest_gold_item()
 
             commit = await commit_snapshot_if_changed()
-            if commit and commit.changed:
+            if commit is None:
+                gold_scrape_succeeded = False
+            elif commit.changed:
                 await send_snapshot_update_notification(commit)
     
     except Exception as e:
@@ -733,7 +736,8 @@ async def lifespan(app: FastAPI):
         # เริ่ม Scheduler หลังจาก Initial Scrape เสร็จ
         asyncio.create_task(run_scheduler(initial_scrape_completed=True))
 
-    asyncio.create_task(initial_startup())
+    if RUN_EMBEDDED_SCRAPER:
+        asyncio.create_task(initial_startup())
     
     yield
     
