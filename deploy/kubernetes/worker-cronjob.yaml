@@ -1,0 +1,38 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: aurum-scraper
+  namespace: aurum-staging
+spec:
+  schedule: "*/10 9-17 * * 1-6"
+  timeZone: Asia/Bangkok
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 120
+  suspend: true
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 240
+      template:
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          containers:
+            - name: scraper
+              image: aurum-thai:staging
+              imagePullPolicy: Never
+              command: ["python", "-m", "scrape_once"]
+              env:
+                - name: SNAPSHOT_DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: aurum-snapshot-db
+                      key: url
+              resources:
+                requests:
+                  cpu: 200m
+                  memory: 256Mi
+                limits:
+                  memory: 1Gi

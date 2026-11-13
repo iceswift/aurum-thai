@@ -88,35 +88,38 @@ class SnapshotStore:
 
     def commit(self, cache: Dict[str, Any], checked_at: str) -> SnapshotCommit:
         """Persist a new revision only when the public business snapshot changed."""
+        with self._exclusive_lock():
+            return self._commit(cache, checked_at, self.load() or {}, self._atomic_write)
+
+    @staticmethod
+    def _commit(cache, checked_at, current_state, write):
         candidate_snapshot = build_board_snapshot(cache)
 
-        with self._exclusive_lock():
-            current_state = self.load() or {}
-            previous_revision = int(current_state.get("revision", 0))
-            previous_snapshot = current_state.get("snapshot")
+        previous_revision = int(current_state.get("revision", 0))
+        previous_snapshot = current_state.get("snapshot")
 
-            if previous_snapshot is not None and canonical_json(previous_snapshot) == canonical_json(candidate_snapshot):
-                current_state["last_checked_at"] = checked_at
-                self._atomic_write(current_state)
-                return SnapshotCommit(False, previous_revision, current_state.get("updated_at"), previous_revision)
+        if previous_snapshot is not None and canonical_json(previous_snapshot) == canonical_json(candidate_snapshot):
+            current_state["last_checked_at"] = checked_at
+            write(current_state)
+            return SnapshotCommit(False, previous_revision, current_state.get("updated_at"), previous_revision)
 
-            updated_at = datetime.datetime.fromisoformat(checked_at).isoformat()
-            next_state = {
-                "version": 1,
-                "revision": previous_revision + 1,
-                "updated_at": updated_at,
-                "last_checked_at": checked_at,
-                "snapshot": candidate_snapshot,
-                "cache": {
-                    "gold_bar_data": copy.deepcopy(cache.get("gold_bar_data", [])),
-                    "jewelry_percent": copy.deepcopy(cache.get("jewelry_percent", [])),
-                    "shop_data": copy.deepcopy(cache.get("shop_data", [])),
-                    "market_status": cache.get("market_status", "Initializing..."),
-                    "source_type": cache.get("source_type", "None"),
-                },
-            }
-            self._atomic_write(next_state)
-            return SnapshotCommit(True, next_state["revision"], updated_at, previous_revision)
+        updated_at = datetime.datetime.fromisoformat(checked_at).isoformat()
+        next_state = {
+            "version": 1,
+            "revision": previous_revision + 1,
+            "updated_at": updated_at,
+            "last_checked_at": checked_at,
+            "snapshot": candidate_snapshot,
+            "cache": {
+                "gold_bar_data": copy.deepcopy(cache.get("gold_bar_data", [])),
+                "jewelry_percent": copy.deepcopy(cache.get("jewelry_percent", [])),
+                "shop_data": copy.deepcopy(cache.get("shop_data", [])),
+                "market_status": cache.get("market_status", "Initializing..."),
+                "source_type": cache.get("source_type", "None"),
+            },
+        }
+        write(next_state)
+        return SnapshotCommit(True, next_state["revision"], updated_at, previous_revision)
 
     def _atomic_write(self, state: Dict[str, Any]) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -132,3 +135,48 @@ class SnapshotStore:
         finally:
             if os.path.exists(temporary_path):
                 os.unlink(temporary_path)
+
+
+class PostgresSnapshotStore:
+    def __init__(self, dsn: str):
+        self.dsn = dsn
+
+    def _connect(self):
+        import psycopg
+
+        return psycopg.connect(self.dsn, connect_timeout=3)
+
+    def initialize(self):
+        with self._connect() as conn:
+            conn.execute("SELECT pg_advisory_xact_lock(74123001)")
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS gold_snapshot (
+                    id integer PRIMARY KEY CHECK (id = 1),
+                    state jsonb NOT NULL
+                )
+            """)
+
+    def load(self):
+        with self._connect() as conn:
+            row = conn.execute("SELECT state FROM gold_snapshot WHERE id = 1").fetchone()
+            return row[0] if row else None
+
+    def commit(self, cache, checked_at):
+        from psycopg.types.json import Jsonb
+
+        with self._connect() as conn:
+            conn.execute("SELECT pg_advisory_xact_lock(74123001)")
+            row = conn.execute("SELECT state FROM gold_snapshot WHERE id = 1").fetchone()
+            current = row[0] if row else {}
+            previous_check = current.get("last_checked_at")
+            if previous_check and datetime.datetime.fromisoformat(previous_check) > datetime.datetime.fromisoformat(checked_at):
+                return SnapshotCommit(False, current["revision"], current["updated_at"], current["revision"])
+
+            def write(state):
+                conn.execute(
+                    "INSERT INTO gold_snapshot (id, state) VALUES (1, %s) "
+                    "ON CONFLICT (id) DO UPDATE SET state = excluded.state",
+                    (Jsonb(state),),
+                )
+
+            return SnapshotStore._commit(cache, checked_at, current, write)

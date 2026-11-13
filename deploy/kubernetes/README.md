@@ -64,7 +64,17 @@ the scheduler. `python -m scrape_once` runs a single market-hours check and
 scrape, exits successfully when the market is closed, and returns a nonzero
 exit code on scrape failure. Existing deployments keep the embedded scheduler
 by default. The file-backed API loads the snapshot at startup; keep the M1
-deployment in embedded mode until the shared store and live reads are in place.
+manifest in embedded mode. Use PostgreSQL for separate API and worker processes.
+
+For split deployments, set `SNAPSHOT_DATABASE_URL` on both API and worker
+and set `RUN_EMBEDDED_SCRAPER=false` on the API. PostgreSQL initializes a
+single snapshot table and serializes commits; price endpoints read the
+current record on each request. Use an isolated database for staging.
+
+`worker-cronjob.yaml` is opt-in and suspended by default. It expects the
+`aurum-snapshot-db` Kubernetes Secret with key `url`. The worker enforces
+Bangkok market hours even when the CronJob triggers outside the Saturday or
+weekday cutoff. Keep it suspended until the split API and database are ready.
 
 1. **Split the runtime.** Extract a one-shot scraper command that checks
    Bangkok market hours, and disable scraping in the API process. Move the

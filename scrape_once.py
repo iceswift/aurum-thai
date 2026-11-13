@@ -11,6 +11,10 @@ async def run() -> int:
         print(f"[Worker] Skipping scrape: {status}")
         return 0
 
+    if main.SNAPSHOT_DATABASE_URL:
+        await asyncio.to_thread(main.SNAPSHOT_STORE.initialize)
+        await asyncio.to_thread(main.restore_snapshot_state)
+
     main.GLOBAL_CACHE["market_status"] = f"{status} | Shop scraping disabled"
     try:
         await main.start_browser()
