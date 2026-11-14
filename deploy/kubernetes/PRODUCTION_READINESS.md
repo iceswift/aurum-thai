@@ -100,3 +100,23 @@ device; FCM acceptance alone does not prove delivery.
 **Production decision: NO-GO.** State transfer and on-host and off-host
 backup recovery were verified. A coordinated cutover backup and isolated
 end-to-end FCM are pending.
+
+## Android verification and cutover gates (2026-11-14)
+
+A debug Android build used the existing Firebase project with production
+topic subscription disabled. FCM accepted a direct message to one emulator
+token. The matching notification appeared, and tapping it triggered a
+successful board refresh against the current public API. This verifies
+Android delivery and the tap handler, not the Kubernetes worker's ability
+to publish with independently provisioned credentials.
+
+No Kubernetes destination is configured on the home server. Before cutover:
+
+- Provision a persistent cluster and PostgreSQL storage independent of the
+  disposable kind lab. Verify restarts, backups, and resource limits.
+- Stage the split API and worker with the schedule suspended. Verify an
+  origin reachable by Cloudflare Tunnel, read parity, and direct-token
+  delivery initiated by the staged runtime.
+- Record the current tunnel origin, pinned Compose image, and a coordinated
+  snapshot backup. Execute the writer handoff and route change only after
+  these checks pass in a scheduled maintenance window.
