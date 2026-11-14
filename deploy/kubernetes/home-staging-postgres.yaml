@@ -1,0 +1,95 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: aurum-home-staging-postgres
+spec:
+  capacity:
+    storage: 5Gi
+  accessModes: [ReadWriteOnce]
+  storageClassName: ""
+  persistentVolumeReclaimPolicy: Retain
+  claimRef:
+    namespace: aurum-staging
+    name: postgres
+  local:
+    path: /srv/thai-gold-view/k3s-staging/postgres
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [iceberg]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  namespace: aurum-staging
+  name: postgres
+spec:
+  storageClassName: ""
+  volumeName: aurum-home-staging-postgres
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  namespace: aurum-staging
+  name: postgres
+spec:
+  selector:
+    app: aurum-postgres
+  ports:
+    - port: 5432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  namespace: aurum-staging
+  name: postgres
+spec:
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: aurum-postgres
+  template:
+    metadata:
+      labels:
+        app: aurum-postgres
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: postgres
+          image: postgres:17
+          env:
+            - name: POSTGRES_USER
+              value: aurum
+            - name: POSTGRES_DB
+              value: aurum
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres
+                  key: password
+          readinessProbe:
+            exec:
+              command: [pg_isready, -h, "127.0.0.1", -U, aurum]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: postgres
