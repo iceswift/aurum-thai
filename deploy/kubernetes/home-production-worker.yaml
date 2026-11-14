@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aurum-scheduler
+  namespace: aurum-production
+spec:
+  replicas: 0
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: aurum-scheduler
+  template:
+    metadata:
+      labels:
+        app: aurum-scheduler
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: scheduler
+          image: ghcr.io/iceswift/aurum-thai:sha-4cf38fcac2404ff979161fba65b4331d6f161908
+          command: [python, -u, -c]
+          args:
+            - |
+              import asyncio
+              import main
+              import psycopg
+
+              async def run():
+                  async with await psycopg.AsyncConnection.connect(
+                      main.SNAPSHOT_DATABASE_URL, autocommit=True
+                  ) as lock:
+                      cursor = await lock.execute("SELECT pg_try_advisory_lock(74123002)")
+                      if not (await cursor.fetchone())[0]:
+                          raise RuntimeError("Another scheduler holds the database lock")
+                      main.SNAPSHOT_STORE.initialize()
+                      main.restore_snapshot_state()
+                      if not main.GLOBAL_CACHE["gold_bar_data"]:
+                          raise RuntimeError("Import the snapshot before enabling the scheduler")
+                      async def check_lock_connection():
+                          while True:
+                              await asyncio.sleep(5)
+                              await asyncio.wait_for(lock.execute("SELECT 1"), timeout=5)
+                      async with asyncio.TaskGroup() as tasks:
+                          tasks.create_task(check_lock_connection())
+                          tasks.create_task(main.run_scheduler())
+
+              asyncio.run(run())
+          env:
+            - name: SNAPSHOT_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: aurum-snapshot-db
+                  key: url
+            - name: FIREBASE_CREDENTIALS_PATH
+              value: /run/secrets/aurum/firebase.json
+          volumeMounts:
+            - name: firebase
+              mountPath: /run/secrets/aurum
+              readOnly: true
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              memory: 1Gi
+      volumes:
+        - name: firebase
+          secret:
+            secretName: aurum-firebase
