@@ -137,8 +137,20 @@ Pre-cutover checklist:
   acquired the only advisory lock, initialized Firebase, and skipped
   scraping while the market was closed.
 - A direct-token foreground FCM test from a staging pod reached the
-  Android emulator. No topic message was sent during cutover. The first
-  scheduled live scrape and topic delivery remain to be observed.
+  Android emulator. No topic message was sent during cutover.
+
+## First production market session (2026-11-16)
+
+- The K3s scheduler resumed scraping when the market opened. The public
+  board advanced from cutover revision 1035 to 1055 and returned a bodyless
+  304 for the matching ETag. Public readiness reported fresh data.
+- Firebase accepted production topic publications, including revisions
+  1054 and 1055. This confirms server-side publication, not per-device
+  receipt for each topic message.
+- PostgreSQL showed one granted scheduler advisory lock. The legacy
+  Compose container remained stopped and the CronJob remained suspended.
+- An early scrape found no gold rows and entered its retry backoff.
+  Later successful scrapes advanced the public snapshot.
 
 For rollback, scale the Kubernetes scheduler to zero and verify its pod
 has terminated before starting the old writer. If PostgreSQL has advanced,
