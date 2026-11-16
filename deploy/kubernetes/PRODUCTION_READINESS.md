@@ -1,8 +1,7 @@
 # Production migration rehearsal
 
-Production remains on Docker Compose behind `api.thaigoldview.com`.
-The rehearsal uses kind and isolated PostgreSQL. It does not change
-Cloudflare routing or use production Firebase credentials.
+Production now runs on K3s behind `api.thaigoldview.com`. The sections
+below distinguish the historical rehearsal from the completed cutover.
 
 ## Rehearsal results (2026-11-13)
 
@@ -97,7 +96,7 @@ device test. The helper sends to one token, never to a topic, and rejects
 the production project. Verify notification receipt and board refresh on the
 device; FCM acceptance alone does not prove delivery.
 
-**Production decision: NO-GO.** State transfer and on-host and off-host
+**Rehearsal decision at that point: NO-GO.** State transfer and on-host and off-host
 backup recovery were verified. A coordinated cutover backup and isolated
 end-to-end FCM are pending.
 
