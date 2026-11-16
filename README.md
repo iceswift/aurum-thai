@@ -6,13 +6,13 @@ Backend API and price scraper for Thai Gold View. The service retrieves Gold Tra
 
 ## Project overview
 
-This repository contains the data collection, snapshot persistence, HTTP API, and notification components of Thai Gold View. It demonstrates an end-to-end service deployed with Docker on an Ubuntu home server and exposed through Cloudflare Tunnel.
+This repository contains the scraper, HTTP API, and notifications for Thai Gold View. Production runs on single-node K3s on an Ubuntu home server. A separate Playwright scheduler writes revisioned snapshots to PostgreSQL, and Cloudflare Tunnel exposes the FastAPI service without exposing the database.
 
 ## Engineering highlights
 
 - **Asynchronous collection:** Playwright retrieves source data while FastAPI serves cached snapshots.
 - **Market-aware scheduling:** randomized polling intervals vary with market windows, recent changes, unchanged results, and failures. Browser resources are released between cycles.
-- **Persistent revisions:** canonical JSON comparison identifies snapshot changes, and temporary-file replacement persists revision and snapshot together.
+- **Persistent revisions:** canonical JSON comparison identifies snapshot changes. Production commits the snapshot and revision together in PostgreSQL; the Compose fallback uses atomic file replacement.
 - **Conditional responses:** `/api/board` supports ETags and bodyless `304` responses to reduce repeat transfers.
 - **Notification semantics:** data changes produce an FCM revision signal; market-status-only transitions are persisted silently.
 - **Operational controls:** liveness/readiness endpoints, persistent data mounts, a container memory limit, and separate API and Web containers support production operation.
@@ -21,12 +21,12 @@ This repository contains the data collection, snapshot persistence, HTTP API, an
 
 ```mermaid
 flowchart LR
-    Website[Gold price website] --> Scheduler[Market-aware Playwright scraper]
-    Scheduler --> Snapshot[Revisioned snapshot]
-    Snapshot --> Disk[Atomic JSON state on disk]
-    Snapshot --> API[FastAPI /api/board]
-    Snapshot -->|Price-data change| FCM[Firebase Cloud Messaging]
-    Client[Flutter Android and PWA] -->|Conditional HTTP request| API
+    Scheduler[Market-aware Playwright scheduler] -->|Fetches prices| Website[Gold Traders Association]
+    Scheduler -->|Commits snapshot and revision| DB[(PostgreSQL)]
+    API[FastAPI /api/board] -->|Reads snapshot| DB
+    Scheduler -->|After a price-data change| FCM[Firebase Cloud Messaging]
+    Client[Flutter Android and PWA] -->|Conditional HTTP request| CF[Cloudflare Tunnel]
+    CF --> API
     FCM -->|Revision signal| Client
 ```
 
@@ -47,9 +47,9 @@ This is a periodically scraped data service, not a streaming market feed. The cu
 | File | Responsibility |
 | --- | --- |
 | [`main.py`](main.py) | FastAPI routes, scheduler, browser lifecycle, and Firebase integration. |
-| [`snapshot_state.py`](snapshot_state.py) | Snapshot construction, canonical comparison, revision persistence, and file locking. |
+| [`snapshot_state.py`](snapshot_state.py) | Snapshot comparison and persistence in PostgreSQL or atomic JSON files. |
 | [`shop.py`](shop.py) | Shop scraper implementations; currently disabled in production. |
-| [`docker-compose.yml`](docker-compose.yml) | API container, persistent mounts, memory limit, and health check. |
+| [`docker-compose.yml`](docker-compose.yml) | Local development and the legacy rollback runtime. |
 
 ## Production architecture
 
