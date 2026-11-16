@@ -1,4 +1,8 @@
-# Deploy on VPS
+# Docker Compose deployment on a VPS
+
+This guide describes the standalone Compose setup, not the current Thai
+Gold View production deployment. For production K3s and rollback, see
+the [production readiness runbook](deploy/kubernetes/PRODUCTION_READINESS.md).
 
 This project is ready to run on a Linux VPS with Docker and Docker Compose.
 
