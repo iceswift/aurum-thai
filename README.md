@@ -55,8 +55,11 @@ This is a periodically scraped data service, not a streaming market feed. The cu
 
 ### Kubernetes migration case study
 
-The live API runs on Docker Compose. An isolated kind environment was used
-to verify the Kubernetes migration before considering a production cutover.
+The live API runs on a single-node K3s home server behind Cloudflare Tunnel.
+FastAPI serves snapshots from PostgreSQL, while one separate scheduler
+scrapes during market hours and publishes price updates through Firebase.
+Docker Compose is retained for rollback. Argo CD, HPA, and the monitoring
+stack were verified in staging, not deployed as production dependencies.
 
 | Area | Verified result |
 | --- | --- |
@@ -64,25 +67,28 @@ to verify the Kubernetes migration before considering a production cutover.
 | GitOps | Argo CD deployed a GHCR image by digest and restored the prior image after a Git revert. |
 | Operations | Staging HTTPS passed certificate verification, and CPU load scaled the API from one to three ready pods. |
 | Monitoring | Prometheus scraped API and worker metrics, and Grafana queried both. A live worker run peaked at 583 MiB for the full container. |
-| Migration rehearsal | Eight read endpoints matched the production contract. Snapshot export preserved the advanced revision for Compose rollback. |
+| Production cutover | Eight public read endpoints and conditional HTTP 304 passed. The first live market session advanced the board from revision 1035 to 1055, and Firebase accepted topic publications. |
 
 See the [readiness runbook](deploy/kubernetes/PRODUCTION_READINESS.md) and
 [migration roadmap](https://github.com/iceswift/aurum-thai/issues/9) for
-the evidence and the remaining production gates.
+the verification evidence and rollback procedure.
 
 See the [Kubernetes staging and migration guide](deploy/kubernetes/README.md)
 for the separate Kubernetes baseline and GitOps roadmap.
 
 ```text
 /srv/thai-gold-view/
-├── app/       # Backend source and Docker Compose definition
-├── data/      # Persistent revision, snapshot, and notification state
-├── secrets/   # Firebase service-account JSON; never commit this directory
-├── web/       # Separate Flutter PWA releases and Nginx configuration
-└── backups/   # Deployment backups
+  k3s-production/postgres/  # Production PostgreSQL local volume
+  k3s-staging/postgres/     # Separate staging data
+  app/                     # Retained Compose definition
+  data/                    # Legacy Compose snapshot and notification state
+  secrets/                 # Host credentials; never commit
+  web/                     # Separate PWA releases and Nginx configuration
+  backups/                 # Deployment and cutover backups
 ```
 
-The `gold-api` container binds only to `127.0.0.1:8000`. Cloudflare Tunnel publishes `https://api.thaigoldview.com`.
+Cloudflare Tunnel publishes the production Kubernetes Service at
+`https://api.thaigoldview.com`. The PWA runs separately.
 
 ## API
 
@@ -149,27 +155,22 @@ For Docker development, create `.env`, then run `docker compose up --build`.
 
 ## Home server deployment
 
-Build while the currently running API continues serving requests:
+From the home server, verify the production workloads:
 
 ```bash
-cd /srv/thai-gold-view/app
-docker compose build gold-api
-docker compose up -d --no-deps gold-api
-docker compose ps
-docker compose logs --tail=100 gold-api
-curl http://127.0.0.1:8000/health
-curl http://127.0.0.1:8000/ready
+export KUBECONFIG="$HOME/.kube/aurum-k3s.yaml"
+kubectl -n aurum-production get deployments,services,pvc
+kubectl -n aurum-production logs deployment/aurum-scheduler --tail=50
+curl -fsS https://api.thaigoldview.com/ready
 ```
 
-Only `gold-api` is recreated. The separate `thai-gold-web` container and Cloudflare Tunnel do not need a restart for an API-only release.
+For releases, keep the production Service and its ClusterIP in place.
+Validate the image in staging first and verify readiness after rollout.
+The worker manifest starts at zero replicas for initial provisioning;
+do not reapply it to a running scheduler without planning that pause.
 
 ## Rollback
 
-Save replaced production source under `/srv/thai-gold-view/backups/<release>/`. Restore it and recreate only the API container:
-
-```bash
-cp /srv/thai-gold-view/backups/<release>/main.py /srv/thai-gold-view/app/main.py
-cd /srv/thai-gold-view/app
-docker compose build gold-api
-docker compose up -d --no-deps gold-api
-```
+Follow the [production rollback runbook](deploy/kubernetes/PRODUCTION_READINESS.md#home-server-cutover-2026-11-14)
+before restarting Compose. Stop the K3s scheduler and preserve the latest
+PostgreSQL revision so the two scrapers never run at the same time.
