@@ -110,7 +110,7 @@ successful board refresh against the current public API. This verifies
 Android delivery and the tap handler, not the Kubernetes worker's ability
 to publish with independently provisioned credentials.
 
-No Kubernetes destination is configured on the home server. Before cutover:
+Pre-cutover checklist:
 
 - Provision a persistent cluster and PostgreSQL storage independent of the
   disposable kind lab. Verify restarts, backups, and resource limits.
@@ -120,3 +120,42 @@ No Kubernetes destination is configured on the home server. Before cutover:
 - Record the current tunnel origin, pinned Compose image, and a coordinated
   snapshot backup. Execute the writer handoff and route change only after
   these checks pass in a scheduled maintenance window.
+
+## Home-server cutover (2026-11-14)
+
+- The K3s production namespace runs FastAPI, PostgreSQL on a retained local
+  volume under `/srv`, and a single scheduler using the existing adaptive
+  market-hours loop. The experimental CronJob remains suspended.
+- Cloudflare's API route now targets the production Service. Preserve its
+  ClusterIP when updating the deployment; if the Service is recreated,
+  verify its address and update only the API route.
+- Snapshot revision 1035 was imported without renumbering. Both Compose
+  state files were checksummed, and the files still matched immediately
+  before stopping the old container. Compose was retained for rollback.
+- Eight public read endpoints, an empty conditional 304, and the website
+  were verified after cutover. The scheduler restored revision 1035,
+  acquired the only advisory lock, initialized Firebase, and skipped
+  scraping while the market was closed.
+- A direct-token foreground FCM test from a staging pod reached the
+  Android emulator. No topic message was sent during cutover.
+
+## First production market session (2026-11-16)
+
+- The K3s scheduler resumed scraping when the market opened. The public
+  board advanced from cutover revision 1035 to 1055 and returned a bodyless
+  304 for the matching ETag. Public readiness reported fresh data.
+- Firebase accepted production topic publications, including revisions
+  1054 and 1055. This confirms server-side publication, not per-device
+  receipt for each topic message.
+- PostgreSQL showed one granted scheduler advisory lock. The legacy
+  Compose container remained stopped and the CronJob remained suspended.
+- An early scrape found no gold rows and entered its retry backoff.
+  Later successful scrapes advanced the public snapshot.
+
+For rollback, scale the Kubernetes scheduler to zero and verify its pod
+has terminated before starting the old writer. If PostgreSQL has advanced,
+export its final snapshot and restore it to the Compose volume atomically
+before starting the retained `gold-api` container. Verify its local
+`/ready` and revision, then restore the Cloudflare API origin to
+`http://127.0.0.1:8000` and verify the public API. Leave the Kubernetes
+database intact until recovery is confirmed.
